@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Promptastic - Mechanistic Interpretability Pipeline</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --accent2: #bc8cff;
+            --green: #3fb950;
+            --orange: #d29922;
+            --red: #f85149;
+            --code-bg: #1c2128;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+        /* Header */
+        header {
+            padding: 80px 0 60px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        header h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 16px;
+        }
+
+        header h1 span { color: var(--accent); }
+
+        header p.tagline {
+            font-size: 1.25rem;
+            color: var(--text-dim);
+            max-width: 640px;
+            margin: 0 auto 32px;
+        }
+
+        .badges {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+        }
+
+        .badge.green { border-color: var(--green); color: var(--green); }
+        .badge.blue { border-color: var(--accent); color: var(--accent); }
+        .badge.purple { border-color: var(--accent2); color: var(--accent2); }
+
+        /* Install */
+        .install {
+            text-align: center;
+            padding: 40px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .install code {
+            display: inline-block;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.95rem;
+            color: var(--green);
+        }
+
+        /* Capabilities grid */
+        .capabilities {
+            padding: 60px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .capabilities h2 {
+            font-size: 1.75rem;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        .capabilities .subtitle {
+            text-align: center;
+            color: var(--text-dim);
+            margin-bottom: 40px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover { border-color: var(--accent); }
+
+        .card h3 {
+            font-size: 1rem;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card h3 .num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: var(--bg);
+            font-size: 0.75rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .card p { font-size: 0.9rem; color: var(--text-dim); }
+
+        .card .flag {
+            display: inline-block;
+            margin-top: 12px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            color: var(--orange);
+            background: var(--code-bg);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        /* Architecture */
+        .architecture {
+            padding: 60px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .architecture h2 {
+            font-size: 1.75rem;
+            margin-bottom: 32px;
+            text-align: center;
+        }
+
+        .arch-diagram {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 32px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+            overflow-x: auto;
+            white-space: pre;
+            color: var(--text-dim);
+        }
+
+        .arch-diagram .highlight { color: var(--accent); }
+        .arch-diagram .green { color: var(--green); }
+        .arch-diagram .purple { color: var(--accent2); }
+        .arch-diagram .orange { color: var(--orange); }
+
+        /* Pipeline */
+        .pipeline {
+            padding: 60px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .pipeline h2 {
+            font-size: 1.75rem;
+            margin-bottom: 32px;
+            text-align: center;
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2px;
+        }
+
+        @media (max-width: 640px) {
+            .steps { grid-template-columns: 1fr; }
+        }
+
+        .step {
+            background: var(--surface);
+            padding: 24px 20px;
+            text-align: center;
+            position: relative;
+        }
+
+        .step:first-child { border-radius: 8px 0 0 8px; }
+        .step:last-child { border-radius: 0 8px 8px 0; }
+
+        .step .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .step h3 { font-size: 1rem; margin-bottom: 4px; }
+        .step p { font-size: 0.8rem; color: var(--text-dim); }
+
+        /* CLI */
+        .cli {
+            padding: 60px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .cli h2 {
+            font-size: 1.75rem;
+            margin-bottom: 32px;
+            text-align: center;
+        }
+
+        .cli-block {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+
+        .cli-block .cmd-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+
+        .cli-block pre {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            color: var(--green);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .cli-block pre .comment { color: var(--text-dim); }
+
+        /* Stats */
+        .stats {
+            padding: 60px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            text-align: center;
+        }
+
+        @media (max-width: 640px) {
+            .stat-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        .stat-item .number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            line-height: 1;
+        }
+
+        .stat-item .label {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        /* Table */
+        .compat-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 32px;
+            font-size: 0.9rem;
+        }
+
+        .compat-table th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .compat-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .compat-table tr:hover td { background: var(--surface); }
+
+        .check { color: var(--green); }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="container">
+        <h1><span>prompt</span>astic</h1>
+        <p class="tagline">
+            Mechanistic interpretability pipeline for transformer models.
+            Causal attribution, per-head decomposition, MLP analysis, feature decomposition,
+            and more &mdash; all from a single forward pass.
+        </p>
+        <div class="badges">
+            <span class="badge green">247 tests passing</span>
+            <span class="badge blue">PyTorch + ROCm</span>
+            <span class="badge purple">7 capture modes</span>
+            <span class="badge">Python 3.10+</span>
+        </div>
+    </div>
+</header>
+
+<section class="install">
+    <div class="container">
+        <code>pip install -e ".[gpu]"</code>
+    </div>
+</section>
+
+<section class="capabilities">
+    <div class="container">
+        <h2>Seven capabilities in one pipeline</h2>
+        <p class="subtitle">Each can be enabled independently via CLI flags or combined in a single run.</p>
+        <div class="grid">
+            <div class="card">
+                <h3><span class="num">1</span> Activation Patching</h3>
+                <p>Zero or mean-ablate a region's contribution at any layer. Measures KL divergence and logit diff to establish causal importance &mdash; not just correlation.</p>
+                <span class="flag">--patching</span>
+            </div>
+            <div class="card">
+                <h3><span class="num">2</span> Per-Head Attention</h3>
+                <p>Full per-head attention decomposition. Identifies specialist heads, computes entropy, and reveals which heads focus on which prompt regions.</p>
+                <span class="flag">--per-head</span>
+            </div>
+            <div class="card">
+                <h3><span class="num">3</span> MLP Capture</h3>
+                <p>Hooks MLP sublayers to capture what the MLP adds or overwrites at each layer. Projects MLP deltas through logit lens to see promoted concepts.</p>
+                <span class="flag">--mlp</span>
+            </div>
+            <div class="card">
+                <h3><span class="num">4</span> Tuned Lens</h3>
+                <p>Per-layer affine probes (Belrose et al. 2023) for cleaner intermediate predictions. Train probes on a calibration set, then use as a drop-in logit lens replacement.</p>
+                <span class="flag">--tuned-lens PATH</span>
+            </div>
+            <div class="card">
+                <h3><span class="num">5</span> SAE Decomposition</h3>
+                <p>Sparse autoencoders decompose the residual stream into interpretable features. See which concepts activate in which prompt regions at each layer.</p>
+                <span class="flag">--sae PATH</span>
+            </div>
+            <div class="card">
+                <h3><span class="num">6</span> Gradient Attribution</h3>
+                <p>Vanilla and integrated gradient methods. Answers "how much does perturbing this region change the output?" &mdash; complementary to attention.</p>
+                <span class="flag">--gradients</span>
+            </div>
+            <div class="card">
+                <h3><span class="num">7</span> Cross-Step Tracking</h3>
+                <p>Tracks attention dynamics across autoregressive generation steps. Reveals how prompt region influence evolves as the model generates tokens.</p>
+                <span class="flag">--generation</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="pipeline">
+    <div class="container">
+        <h2>Four-stage pipeline</h2>
+        <div class="steps">
+            <div class="step">
+                <div class="label">Stage 1</div>
+                <h3>Prep</h3>
+                <p>Annotate regions in your prompt via markers, regex, or char ranges</p>
+            </div>
+            <div class="step">
+                <div class="label">Stage 2</div>
+                <h3>Engine</h3>
+                <p>Forward pass with composable hooks capturing all requested modes</p>
+            </div>
+            <div class="step">
+                <div class="label">Stage 3</div>
+                <h3>Render</h3>
+                <p>11 renderers: heatmaps, cooking curves, GIFs, patching grids, dashboards</p>
+            </div>
+            <div class="step">
+                <div class="label">Stage 4</div>
+                <h3>Analysis</h3>
+                <p>N-variant comparison, markdown reports, causal scoring, head analysis</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="architecture">
+    <div class="container">
+        <h2>Project structure</h2>
+        <div class="arch-diagram"><span class="highlight">src/promptastic/</span>
+  <span class="purple">engine/</span>
+    model_adapter.py     <span class="green">Auto-discovers any HuggingFace model architecture</span>
+    tokenization.py      <span class="green">Chat template + BPE-safe region-to-token mapping</span>
+    hooks.py             <span class="green">ResidualCache, AttentionCache, MLPCache, GradientCache</span>
+    captures.py          <span class="green">10 capture modes, compatibility validation</span>
+    patching.py          <span class="green">Zero/mean ablation with KL divergence scoring</span>
+    tuned_lens.py        <span class="green">Per-layer affine probes: train + project</span>
+    sae.py               <span class="green">Sparse autoencoder decoder + feature analyzer</span>
+    gradients.py         <span class="green">Vanilla + integrated gradient attribution</span>
+    generation.py        <span class="green">Autoregressive generation with per-step hooks</span>
+    runner.py            <span class="green">Main orchestrator composing all captures</span>
+  <span class="purple">render/</span>
+    heatmap.py           <span class="orange">Per-token attention heatmap</span>
+    cooking_curves.py    <span class="orange">Per-region attention trajectories</span>
+    layer_gif.py         <span class="orange">Animated layer sweep</span>
+    aggregate.py         <span class="orange">Multi-sample with confidence bands</span>
+    patching_heatmap.py  <span class="orange">Region x layer causal importance grid</span>
+    head_grid.py         <span class="orange">Per-head attention + specialization chart</span>
+    mlp_curves.py        <span class="orange">MLP contribution trajectories</span>
+    feature_dashboard.py <span class="orange">SAE feature visualization</span>
+    generation_timeline.py <span class="orange">Cross-step attention decay</span>
+  <span class="purple">analysis/</span>
+    metrics.py           Cooking stats, phase means, safe math
+    compare.py           N-variant comparison tables
+    report.py            Markdown reports with delta analysis
+    causal.py            Causal importance scoring + correlation
+    head_analysis.py     Head specialization + specialist detection
+    feature_analysis.py  Top features + Jaccard overlap</div>
+    </div>
+</section>
+
+<section class="cli">
+    <div class="container">
+        <h2>Usage</h2>
+        <div class="cli-block">
+            <div class="cmd-label">Prepare inputs</div>
+            <pre>python -m promptastic.prep.inputs \
+    --prompt system_prompt.txt \
+    --regions regions.json \
+    --conversations conversations.json \
+    --output test_cases.json</pre>
+        </div>
+        <div class="cli-block">
+            <div class="cmd-label">Run analysis (all capabilities)</div>
+            <pre>promptastic --input test_cases.json \
+    --output results/ \
+    --model-path /path/to/model \
+    --per-head --mlp --patching --gradients</pre>
+        </div>
+        <div class="cli-block">
+            <div class="cmd-label">Render visualizations</div>
+            <pre><span class="comment"># Attention heatmap</span>
+python -m promptastic.render.heatmap --result results/case_0.json
+
+<span class="comment"># Cooking curves (per-region trajectories)</span>
+python -m promptastic.render.cooking_curves --result results/case_0.json
+
+<span class="comment"># Activation patching grid</span>
+python -m promptastic.render.patching_heatmap --result results/case_0.json
+
+<span class="comment"># Per-head attention grid</span>
+python -m promptastic.render.head_grid --result results/case_0.json
+
+<span class="comment"># SAE feature dashboard</span>
+python -m promptastic.render.feature_dashboard --result results/case_0.json</pre>
+        </div>
+        <div class="cli-block">
+            <div class="cmd-label">Compare variants</div>
+            <pre>python -m promptastic.analysis.compare \
+    --base-dir results/ \
+    --variants baseline:Baseline modified:Modified \
+    --metrics all,patching,gradient</pre>
+        </div>
+    </div>
+</section>
+
+<section class="capabilities" style="border-bottom: 1px solid var(--border);">
+    <div class="container">
+        <h2>Model support</h2>
+        <p class="subtitle">Auto-discovers architecture from any HuggingFace decoder-only transformer.</p>
+        <table class="compat-table">
+            <thead>
+                <tr>
+                    <th>Family</th>
+                    <th>Example</th>
+                    <th>Attn</th>
+                    <th>Per-Head</th>
+                    <th>MLP</th>
+                    <th>Patching</th>
+                    <th>Gradients</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Llama 3</td>
+                    <td style="color: var(--text-dim)">Llama-3.1-8B-Instruct</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                </tr>
+                <tr>
+                    <td>Qwen</td>
+                    <td style="color: var(--text-dim)">Qwen3-32B</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                </tr>
+                <tr>
+                    <td>Mistral</td>
+                    <td style="color: var(--text-dim)">Mistral-7B-Instruct</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                </tr>
+                <tr>
+                    <td>Gemma</td>
+                    <td style="color: var(--text-dim)">Gemma-2-9B-IT</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                </tr>
+                <tr>
+                    <td>GPT</td>
+                    <td style="color: var(--text-dim)">gpt-oss-20b</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                    <td class="check">&#10003;</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="stats">
+    <div class="container">
+        <div class="stat-grid">
+            <div class="stat-item">
+                <div class="number">32</div>
+                <div class="label">Source files</div>
+            </div>
+            <div class="stat-item">
+                <div class="number">10k</div>
+                <div class="label">Lines of code</div>
+            </div>
+            <div class="stat-item">
+                <div class="number">247</div>
+                <div class="label">Tests passing</div>
+            </div>
+            <div class="stat-item">
+                <div class="number">11</div>
+                <div class="label">Renderers</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="container">
+        <p>
+            <a href="https://github.com/harsh-nod/promptastic">GitHub</a>
+            &nbsp;&middot;&nbsp;
+            MIT License
+            &nbsp;&middot;&nbsp;
+            Built with PyTorch
+        </p>
+    </div>
+</footer>
+
+</body>
+</html>
