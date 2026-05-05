@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "promptastic"
+version = "0.1.0"
+description = "Mechanistic interpretability pipeline with causal attribution, per-head analysis, and feature decomposition"
+requires-python = ">=3.10"
+dependencies = ["numpy", "Pillow"]
+
+[project.optional-dependencies]
+gpu = ["torch", "transformers", "accelerate", "safetensors", "huggingface_hub"]
+sae = ["sae-lens"]
+tuned-lens = ["tuned-lens"]
+all = ["promptastic[gpu,sae,tuned-lens]"]
+dev = ["pytest", "mypy"]
+
+[project.scripts]
+promptastic = "promptastic.engine.runner:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/promptastic"]
