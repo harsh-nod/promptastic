@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Tuning Guide - Promptastic</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --accent2: #bc8cff;
+            --green: #3fb950;
+            --orange: #d29922;
+            --red: #f85149;
+            --code-bg: #1c2128;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+        }
+
+        /* Navigation */
+        nav {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        nav a {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        nav a:hover { text-decoration: underline; }
+
+        nav .sep { color: var(--text-dim); }
+
+        nav .title {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        /* Article layout */
+        .article {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .article-header {
+            padding: 60px 0 40px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 48px;
+        }
+
+        .article-header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 16px;
+            line-height: 1.2;
+        }
+
+        .article-header .subtitle {
+            font-size: 1.15rem;
+            color: var(--text-dim);
+            max-width: 640px;
+        }
+
+        .article-header .meta {
+            margin-top: 16px;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        /* Sections */
+        section {
+            margin-bottom: 56px;
+        }
+
+        section h2 {
+            font-size: 1.6rem;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        section h3 {
+            font-size: 1.15rem;
+            margin: 24px 0 12px;
+            color: var(--accent);
+        }
+
+        p {
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        p.dim { color: var(--text-dim); }
+
+        /* Code blocks */
+        .code-block {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px 24px;
+            margin: 16px 0 24px;
+            overflow-x: auto;
+        }
+
+        .code-block .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+
+        .code-block pre {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .code-block pre .comment { color: var(--text-dim); }
+        .code-block pre .keyword { color: var(--accent2); }
+        .code-block pre .marker { color: var(--green); font-weight: 700; }
+        .code-block pre .cmd { color: var(--green); }
+
+        /* Images */
+        .viz {
+            margin: 24px 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .viz img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .viz .caption {
+            padding: 14px 20px;
+        }
+
+        .viz .caption .title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 0.95rem;
+        }
+
+        .viz .caption .desc {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        /* Side-by-side comparison */
+        .side-by-side {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        @media (max-width: 700px) {
+            .side-by-side { grid-template-columns: 1fr; }
+        }
+
+        .side-by-side .viz { margin: 0; }
+
+        .comparison-label {
+            text-align: center;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 8px;
+            font-weight: 600;
+        }
+
+        .label-bad {
+            color: var(--red);
+            background: rgba(248, 81, 73, 0.08);
+        }
+
+        .label-good {
+            color: var(--green);
+            background: rgba(63, 185, 80, 0.08);
+        }
+
+        /* Callout boxes */
+        .callout {
+            background: var(--surface);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 16px 20px;
+            margin: 20px 0;
+        }
+
+        .callout.warning {
+            border-left-color: var(--orange);
+        }
+
+        .callout.insight {
+            border-left-color: var(--green);
+        }
+
+        .callout .callout-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+
+        .callout p {
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            margin-bottom: 0;
+        }
+
+        /* Lists */
+        ul, ol {
+            margin: 12px 0 16px 24px;
+            color: var(--text-dim);
+        }
+
+        li { margin-bottom: 6px; font-size: 0.95rem; }
+        li strong { color: var(--text); }
+
+        /* Takeaway cards */
+        .takeaways {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+            margin: 24px 0;
+        }
+
+        .takeaway {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .takeaway .num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: var(--bg);
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .takeaway h4 {
+            font-size: 0.95rem;
+            margin-bottom: 4px;
+        }
+
+        .takeaway p {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 0;
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            margin-top: 40px;
+        }
+
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="index.html">Promptastic</a>
+    <span class="sep">/</span>
+    <span class="title">Prompt Tuning Guide</span>
+</nav>
+
+<div class="article">
+
+<div class="article-header">
+    <h1>Tuning prompts with mechanistic interpretability</h1>
+    <p class="subtitle">
+        How to use attention diagnostics, activation patching, and per-head analysis
+        to turn a vague prompt into a well-structured one &mdash; with real data showing what changed and why.
+    </p>
+    <p class="meta">
+        Qwen2.5-3B-Instruct &middot; 36 layers, 16 heads &middot; AMD Instinct MI350X
+    </p>
+</div>
+
+<!-- ================================================================ -->
+<section>
+    <h2>The idea</h2>
+    <p>
+        Most prompt engineering is trial and error: change some words, test the output, hope it improves.
+        Mechanistic interpretability gives you a different approach. Instead of treating the model as a
+        black box, you can look inside and see <strong>how</strong> it processes your prompt at every layer
+        of the forward pass.
+    </p>
+    <p>
+        Promptastic captures four diagnostics that reveal prompt quality:
+    </p>
+    <ul>
+        <li><strong>Attention heatmaps</strong> &mdash; which tokens the model focuses on at the final layer</li>
+        <li><strong>Cooking curves</strong> &mdash; how attention to each prompt region evolves layer by layer</li>
+        <li><strong>Activation patching</strong> &mdash; what happens to the output when you remove a region entirely (causal importance)</li>
+        <li><strong>Per-head attention grids</strong> &mdash; whether individual attention heads specialize on specific regions</li>
+    </ul>
+    <p>
+        This guide walks through a concrete example: we start with an unstructured prompt, diagnose
+        its problems using these tools, restructure it, and verify the improvement.
+    </p>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Step 1: The unstructured prompt</h2>
+    <p>
+        Here is a typical first-draft system prompt for a coding assistant. All instructions, rules,
+        and examples are mixed into a single paragraph:
+    </p>
+
+    <div class="code-block">
+        <div class="label">system_prompt_unstructured.txt</div>
+        <pre>You are a helpful coding assistant that writes good code. Try to be
+thorough and explain things when needed. You should use descriptive
+variable names and handle edge cases when possible. For example if
+someone asks about palindromes you could write something like def
+is_palindrome(s): cleaned = ''.join(c.lower() for c in s if
+c.isalnum()) and return cleaned == cleaned[::-1]. You should also
+prefer standard library solutions over third-party dependencies when
+you can. When someone asks about data structures like linked lists
+try to walk through the approach, for instance reversing a linked
+list needs three pointers previous current and next where at each
+step you reverse the pointer direction. Also add comments for complex
+logic and validate inputs when it makes sense. Try to be concise but
+complete in your explanations and always make sure your code is
+correct and follows best practices. Always explain your reasoning
+step by step before writing code so the user can follow along with
+your thought process.</pre>
+    </div>
+
+    <p>
+        The content is reasonable, but there are no structural markers. Rules and examples
+        are interleaved. There is nothing for the region engine to anchor on.
+    </p>
+
+    <div class="code-block">
+        <div class="label">regions_unstructured.json</div>
+        <pre>{
+  "system_prompt": {
+    "regions": []
+  }
+}</pre>
+    </div>
+
+    <p class="dim">
+        With no region definitions, the entire system prompt is treated as one opaque blob.
+        The pipeline can tell you that the model looks at the system prompt, but not
+        <em>which part</em> of it matters or when.
+    </p>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Step 2: Run the analysis</h2>
+
+    <div class="code-block">
+        <div class="label">Prepare inputs and run</div>
+        <pre><span class="comment"># Prepare test cases</span>
+<span class="cmd">python -m promptastic.prep.inputs</span> \
+    --prompt system_prompt_unstructured.txt \
+    --regions regions_unstructured.json \
+    --conversations conversations.json \
+    --output test_cases.json
+
+<span class="comment"># Run with attention + per-head + patching</span>
+<span class="cmd">promptastic</span> --input test_cases.json \
+    --output results_unstructured/ \
+    --model-path Qwen/Qwen2.5-3B-Instruct \
+    --per-head --patching</pre>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Step 3: Diagnose the problems</h2>
+
+    <h3>Attention heatmap</h3>
+    <div class="viz">
+        <img src="examples/viz_unstructured/heatmap.png" alt="Unstructured prompt attention heatmap" loading="lazy">
+        <div class="caption">
+            <div class="title">Unstructured prompt &mdash; attention heatmap</div>
+            <div class="desc">
+                229 tokens, 4 regions detected (system_prompt, user_message, response, chat_template).
+                Attention is spread across the entire system prompt with no clear focal points.
+                The model treats the entire block as one undifferentiated input.
+            </div>
+        </div>
+    </div>
+
+    <h3>Cooking curves: invisible</h3>
+    <div class="callout warning">
+        <div class="callout-title">No cooking curves available</div>
+        <p>
+            The cooking curve renderer filters out container regions (system_prompt, user_message,
+            chat_template) to focus on sub-regions. With zero sub-regions defined, there is nothing
+            to plot. This is the first red flag: <strong>if you can't produce cooking curves, you
+            can't see how different parts of your prompt are processed at different layers.</strong>
+        </p>
+    </div>
+
+    <h3>Activation patching</h3>
+    <div class="viz">
+        <img src="examples/viz_unstructured/patching.png" alt="Unstructured prompt patching grid" loading="lazy">
+        <div class="caption">
+            <div class="title">Unstructured prompt &mdash; activation patching grid</div>
+            <div class="desc">
+                Region x layer causal importance. With only 4 coarse regions,
+                you can see the system_prompt matters (warm cells) but you cannot tell
+                <em>which instructions</em> within it are driving the output. The
+                causal signal is aggregated into a single row for the entire system prompt.
+            </div>
+        </div>
+    </div>
+
+    <h3>Per-head attention grid</h3>
+    <div class="viz">
+        <img src="examples/viz_unstructured/head_grid.png" alt="Unstructured prompt head grid" loading="lazy">
+        <div class="caption">
+            <div class="title">Unstructured prompt &mdash; per-head attention grid</div>
+            <div class="desc">
+                16 heads x 4 regions. Some heads show differentiation between system_prompt and
+                user_message, but with the system prompt as one blob, you cannot see whether
+                heads are specializing on rules vs. examples. The diagnostic resolution is too low.
+            </div>
+        </div>
+    </div>
+
+    <div class="callout insight">
+        <div class="callout-title">Diagnosis</div>
+        <p>
+            The model is processing this prompt, but we're blind to the internal dynamics.
+            We know the system prompt matters causally (patching shows it), but we cannot
+            decompose <em>how</em> it matters. Are the rules important? The examples? Both?
+            At which layers? We need structure.
+        </p>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Step 4: Restructure the prompt</h2>
+    <p>
+        The fix is straightforward: add clear section headers that serve as region markers.
+        The content stays the same &mdash; we're just organizing it.
+    </p>
+
+    <div class="code-block">
+        <div class="label">system_prompt.txt (structured)</div>
+        <pre>You are a helpful coding assistant. Follow these rules carefully.
+
+<span class="marker">## Rules</span>
+- Always explain your reasoning step by step before writing code
+- Use descriptive variable names and add comments for complex logic
+- Handle edge cases and validate inputs
+- Prefer standard library solutions over third-party dependencies
+
+<span class="marker">## Examples</span>
+User: Write a function to check if a string is a palindrome
+Assistant: I'll break this down step by step:
+1. A palindrome reads the same forwards and backwards
+2. We should handle case insensitivity and ignore non-alphanumeric characters
+
+```python
+def is_palindrome(s: str) -> bool:
+    cleaned = ''.join(c.lower() for c in s if c.isalnum())
+    return cleaned == cleaned[::-1]
+```
+
+User: How do I reverse a linked list?
+Assistant: Let me walk through the approach:
+1. We need three pointers: previous, current, and next
+2. At each step, reverse the current node's pointer
+
+```python
+def reverse_linked_list(head):
+    prev = None
+    current = head
+    while current:
+        next_node = current.next
+        current.next = prev
+        prev = current
+        current = next_node
+    return prev
+```</pre>
+    </div>
+
+    <p>
+        The <code>## Rules</code> and <code>## Examples</code> markers create clean
+        boundaries for the region engine:
+    </p>
+
+    <div class="code-block">
+        <div class="label">regions.json</div>
+        <pre>{
+  "system_prompt": {
+    "regions": [
+      {"name": "<span class="marker">rules</span>", "start_marker": "## Rules", "end_marker": "## Examples"},
+      {"name": "<span class="marker">examples</span>", "start_marker": "## Examples", "end_marker": null}
+    ]
+  }
+}</pre>
+    </div>
+
+    <div class="callout">
+        <div class="callout-title">What changed</div>
+        <p>
+            Same instructions, same examples. The only difference is organization: rules are
+            separated from examples with markdown headers. This gives the MI pipeline two distinct
+            regions to track independently through the forward pass.
+        </p>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Step 5: Verify the improvement</h2>
+    <p>
+        Run the same analysis on the structured prompt with the same conversations:
+    </p>
+
+    <h3>Attention heatmap</h3>
+    <div class="viz">
+        <img src="examples/viz_structured/heatmap.png" alt="Structured prompt attention heatmap" loading="lazy">
+        <div class="caption">
+            <div class="title">Structured prompt &mdash; attention heatmap</div>
+            <div class="desc">
+                289 tokens, 6 regions detected. The longer token count reflects the formatted
+                prompt with clear section structure. Region boundaries are visible in the attention
+                distribution.
+            </div>
+        </div>
+    </div>
+
+    <h3>Cooking curves</h3>
+    <div class="viz">
+        <img src="examples/viz_structured/cooking_curves.png" alt="Structured prompt cooking curves" loading="lazy">
+        <div class="caption">
+            <div class="title">Structured prompt &mdash; cooking curves</div>
+            <div class="desc">
+                Now we can see two distinct trajectories. <strong>Examples</strong> peak at layer 0
+                (0.002) and decay 3.5x by terminal &mdash; the model absorbs the examples early
+                and compresses them away. <strong>Rules</strong> peak at layer 33 (0.006) near the
+                output layers with only 1.5x decay &mdash; the rules stay active through the
+                forward pass and directly influence the output. This is exactly what a well-structured
+                coding assistant prompt should show: examples provide context early, rules guide
+                output late.
+            </div>
+        </div>
+    </div>
+
+    <div class="callout insight">
+        <div class="callout-title">Reading cooking curves</div>
+        <p>
+            <strong>Peak layer</strong> tells you when a region most influences processing.
+            <strong>Retention ratio</strong> (peak / terminal) tells you whether information
+            is absorbed and compressed (high ratio) or sustained through to output (low ratio).
+            Different regions <em>should</em> have different trajectories &mdash; that means the
+            model is processing them at appropriate phases. If all curves look the same, your
+            prompt structure isn't creating distinct processing pathways.
+        </p>
+    </div>
+
+    <h3>Activation patching</h3>
+    <div class="viz">
+        <img src="examples/viz_structured/patching.png" alt="Structured prompt patching grid" loading="lazy">
+        <div class="caption">
+            <div class="title">Structured prompt &mdash; activation patching grid</div>
+            <div class="desc">
+                Now we have 6 separate rows showing causal importance per region per layer.
+                You can see exactly which regions drive the output at which layers. The rules and
+                examples regions show distinct patterns of causal importance, confirming they are
+                processed differently.
+            </div>
+        </div>
+    </div>
+
+    <h3>Per-head attention grid</h3>
+    <div class="viz">
+        <img src="examples/viz_structured/head_grid.png" alt="Structured prompt head grid" loading="lazy">
+        <div class="caption">
+            <div class="title">Structured prompt &mdash; per-head attention grid</div>
+            <div class="desc">
+                16 heads x 6 regions. Head specialization is now visible: some heads attend
+                strongly to the rules region while ignoring examples, and vice versa. This
+                specialization indicates the model is using different processing pathways for
+                different prompt sections &mdash; a hallmark of effective prompt structure.
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Side-by-side comparison</h2>
+    <p>
+        The difference becomes obvious when you compare the two variants directly.
+    </p>
+
+    <h3>Attention heatmaps</h3>
+    <div class="side-by-side">
+        <div class="viz">
+            <div class="comparison-label label-bad">Unstructured</div>
+            <img src="examples/viz_unstructured/heatmap.png" alt="Unstructured heatmap" loading="lazy">
+        </div>
+        <div class="viz">
+            <div class="comparison-label label-good">Structured</div>
+            <img src="examples/viz_structured/heatmap.png" alt="Structured heatmap" loading="lazy">
+        </div>
+    </div>
+    <p class="dim">
+        The structured prompt (right) has more tokens due to formatting, but the attention
+        distribution shows clearer focal patterns with visible region boundaries.
+    </p>
+
+    <h3>Activation patching</h3>
+    <div class="side-by-side">
+        <div class="viz">
+            <div class="comparison-label label-bad">Unstructured</div>
+            <img src="examples/viz_unstructured/patching.png" alt="Unstructured patching" loading="lazy">
+        </div>
+        <div class="viz">
+            <div class="comparison-label label-good">Structured</div>
+            <img src="examples/viz_structured/patching.png" alt="Structured patching" loading="lazy">
+        </div>
+    </div>
+    <p class="dim">
+        Left: 4 coarse regions, causal importance locked in the system_prompt blob.
+        Right: 6 regions with separate rows for rules and examples, revealing distinct
+        causal patterns at different layers.
+    </p>
+
+    <h3>Per-head attention</h3>
+    <div class="side-by-side">
+        <div class="viz">
+            <div class="comparison-label label-bad">Unstructured</div>
+            <img src="examples/viz_unstructured/head_grid.png" alt="Unstructured head grid" loading="lazy">
+        </div>
+        <div class="viz">
+            <div class="comparison-label label-good">Structured</div>
+            <img src="examples/viz_structured/head_grid.png" alt="Structured head grid" loading="lazy">
+        </div>
+    </div>
+    <p class="dim">
+        Left: 4 columns, limited visibility into head specialization within the system prompt.
+        Right: 6 columns, clear specialization patterns with heads dedicating attention to
+        specific prompt sections.
+    </p>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Key takeaways</h2>
+
+    <div class="takeaways">
+        <div class="takeaway">
+            <div class="num">1</div>
+            <h4>Use section markers</h4>
+            <p>Headers like <code>## Rules</code> and <code>## Examples</code> create
+            boundaries that both the model and the MI pipeline can use. Without them,
+            the system prompt is a single opaque blob.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">2</div>
+            <h4>Separate rules from examples</h4>
+            <p>The model processes them differently: examples get absorbed early (context),
+            rules stay active late (output guidance). Mixing them removes this natural
+            phase separation.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">3</div>
+            <h4>Check the cooking curves</h4>
+            <p>Distinct trajectories for different regions = good structure. If all curves
+            look identical or you can't produce curves at all, your prompt lacks
+            decomposable structure.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">4</div>
+            <h4>Verify with patching</h4>
+            <p>Cooking curves show correlation; patching shows causation. A region with
+            high attention but low KL divergence when ablated is observed but not
+            causally important.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">5</div>
+            <h4>Look for head specialization</h4>
+            <p>Specialist heads (one head per region) indicate the model has learned
+            to allocate dedicated processing for each prompt section. Uniform attention
+            across heads suggests the model can't differentiate sections.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">6</div>
+            <h4>Structure is free performance</h4>
+            <p>Adding markdown headers costs almost nothing in tokens but gives the model
+            clear processing anchors. The same content, reorganized, produces measurably
+            different attention dynamics.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Reproduce this analysis</h2>
+    <p>
+        All files used in this guide are included in the
+        <a href="https://github.com/harsh-nod/promptastic/tree/main/examples">examples/</a>
+        directory:
+    </p>
+    <div class="code-block">
+        <pre><span class="comment"># Clone and install</span>
+git clone https://github.com/harsh-nod/promptastic
+cd promptastic
+pip install -e ".[gpu]"
+
+<span class="comment"># Prep both variants</span>
+<span class="cmd">python -m promptastic.prep.inputs</span> \
+    --prompt examples/system_prompt_unstructured.txt \
+    --regions examples/regions_unstructured.json \
+    --conversations examples/conversations.json \
+    --output test_cases_unstructured.json
+
+<span class="cmd">python -m promptastic.prep.inputs</span> \
+    --prompt examples/system_prompt.txt \
+    --regions examples/regions.json \
+    --conversations examples/conversations.json \
+    --output test_cases_structured.json
+
+<span class="comment"># Run analysis on both</span>
+<span class="cmd">promptastic</span> --input test_cases_unstructured.json \
+    --output results_unstructured/ \
+    --model-path Qwen/Qwen2.5-3B-Instruct \
+    --per-head --patching
+
+<span class="cmd">promptastic</span> --input test_cases_structured.json \
+    --output results_structured/ \
+    --model-path Qwen/Qwen2.5-3B-Instruct \
+    --per-head --patching
+
+<span class="comment"># Generate visualizations</span>
+<span class="cmd">python -m promptastic.render.heatmap</span> --result results_structured/two_sum.json --mask-chatml
+<span class="cmd">python -m promptastic.render.cooking_curves</span> --result results_structured/two_sum.json --normalize per-region
+<span class="cmd">python -m promptastic.render.patching_heatmap</span> --result results_structured/two_sum.json
+<span class="cmd">python -m promptastic.render.head_grid</span> --result results_structured/two_sum.json --layers final
+
+<span class="comment"># Compare variants</span>
+<span class="cmd">python -m promptastic.analysis.compare</span> \
+    --base-dir ./ \
+    --variants results_unstructured:Unstructured results_structured:Structured \
+    --metrics terminal,patching</pre>
+    </div>
+</section>
+
+</div>
+
+<footer>
+    <div class="container">
+        <p>
+            <a href="index.html">Promptastic</a>
+            &nbsp;&middot;&nbsp;
+            <a href="https://github.com/harsh-nod/promptastic">GitHub</a>
+            &nbsp;&middot;&nbsp;
+            MIT License
+        </p>
+    </div>
+</footer>
+
+</body>
+</html>
