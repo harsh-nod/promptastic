@@ -758,30 +758,190 @@ Agent: I apologize for the delay. Let me check your shipping status...</pre>
     <span class="flag">--rewrite-api-key</span> $ANTHROPIC_API_KEY</pre>
     </div>
 
-    <h3>Step 4: Interpret the output</h3>
+    <h3>Step 4: The optimized prompt</h3>
     <p>
-        The optimizer produces three files:
+        After 3 iterations of structural mutations, the optimizer produces this prompt
+        (saved to <code>optimized/prompt.txt</code>):
+    </p>
+
+    <div class="code-block">
+        <div class="label">optimized/prompt.txt (after 3 iterations)</div>
+        <pre>You are an enterprise customer support agent. Follow company policy at all times.
+
+<span class="comment">&lt;!-- Approved Responses moved above Policy (iter 0: reorder_sections) --&gt;</span>
+<span class="marker">## Approved Responses</span>
+Customer: I want a refund
+Agent: I understand your concern. Let me look into your order details...
+
+Customer: Your product broke after one week
+Agent: I'm sorry to hear that. Product issues within the warranty period...
+
+Customer: I've been waiting 3 weeks for my order
+Agent: I apologize for the delay. Let me check your shipping status...
+
+<span class="comment">&lt;!-- Separator added to reduce context bleed (iter 1: insert_separator) --&gt;</span>
+<span class="marker">---</span>
+
+<span class="comment">&lt;!-- Emphasis added to header (iter 2: adjust_emphasis) --&gt;</span>
+<span class="marker">**## Policy**</span>
+- Always greet the customer by name if available
+- Never share internal pricing, cost structures, or margin data
+- Escalate to a human agent if the customer mentions legal action
+- Offer a resolution within the first two responses
+- Do not make promises about timelines unless confirmed by the system
+- Use professional but warm tone throughout
+
+<span class="comment">&lt;!-- Summary echo appended (iter 2: duplicate_summary) --&gt;</span>
+<span class="marker">Remember:</span> Always greet the customer by name if available.</pre>
+    </div>
+
+    <p>
+        Three structural mutations were applied, each targeting a specific diagnostic signal:
     </p>
 
     <table>
-        <tr><th>File</th><th>Contains</th></tr>
+        <tr><th>Iteration</th><th>Mutation</th><th>Why</th></tr>
         <tr>
-            <td><code>prompt.txt</code></td>
-            <td>The best-scoring prompt found across all iterations</td>
+            <td>0</td>
+            <td><code>reorder_sections</code></td>
+            <td>Policy had low terminal attention (0.018). Moving it after Approved Responses
+                places it closer to the end of the prompt, exploiting transformer recency bias
+                so the model attends to rules more heavily in output layers.</td>
         </tr>
         <tr>
-            <td><code>optimization_log.json</code></td>
-            <td>Per-iteration metrics, scores, and mutations applied</td>
+            <td>1</td>
+            <td><code>insert_separator</code></td>
+            <td>Context bleed ratio was 1.80. Adding a <code>---</code> separator between the
+                example responses and the policy section creates an explicit attention boundary
+                that reduces cross-region interference.</td>
         </tr>
         <tr>
-            <td><code>report.md</code></td>
-            <td>Markdown summary with score progression and metric details</td>
+            <td>2</td>
+            <td><code>duplicate_summary</code></td>
+            <td>Policy retention was still below target (0.12 &rarr; 0.28). Echoing the first
+                rule at the very end of the prompt ensures the policy region has representation
+                in the final token positions, boosting terminal-layer attention.</td>
         </tr>
     </table>
 
+    <h3>Step 5: How it changes the LLM output</h3>
     <p>
-        You can verify the optimized prompt by running the standard Promptastic analysis
-        and comparing visualizations:
+        The MI metrics are not academic &mdash; they predict real differences in model behavior.
+        Here's what the model generates for the same user message with each prompt version:
+    </p>
+
+    <div class="callout">
+        <div class="callout-title">User message (shipping_delay)</div>
+        <p>"My order #4521 was supposed to arrive 5 days ago. This is unacceptable, where is it?"</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0;">
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--red); margin-bottom: 12px; font-weight: 600;">Before optimization (v0)</div>
+            <div style="font-size: 0.88rem; color: var(--text-dim); line-height: 1.7;">
+                I apologize for the inconvenience with your order #4521. Let me look into this for you right away. <span style="color: var(--red); font-weight: 600;">Based on our shipping records, your package should arrive within the next 2-3 business days.</span> I understand this is frustrating, and I appreciate your patience while we resolve this.
+            </div>
+            <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
+                <div style="font-size: 0.75rem; color: var(--red);">
+                    Policy violations:<br>
+                    - Made a timeline promise ("2-3 business days") without system confirmation<br>
+                    - Did not greet by name<br>
+                    - Did not offer a concrete resolution
+                </div>
+            </div>
+        </div>
+        <div style="background: var(--surface); border: 1px solid var(--green); border-radius: 8px; padding: 20px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 12px; font-weight: 600;">After optimization (v3)</div>
+            <div style="font-size: 0.88rem; color: var(--text-dim); line-height: 1.7;">
+                Hello! I'm sorry to hear about the delay with your order #4521. I completely understand your frustration. Let me check your shipping status right away. <span style="color: var(--green); font-weight: 600;">I'll pull up the latest tracking information and get back to you with an update. If there's an issue on our end, I'd like to offer you expedited shipping at no additional cost as a resolution.</span>
+            </div>
+            <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
+                <div style="font-size: 0.75rem; color: var(--green);">
+                    Policy adherence:<br>
+                    - No timeline promises (checks first, no fabricated dates)<br>
+                    - Offers a concrete resolution (expedited shipping)<br>
+                    - Professional but warm tone throughout
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="callout insight">
+        <div class="callout-title">Why did the output change?</div>
+        <p>
+            The v0 prompt had low terminal attention on the policy region (0.018) and low retention (0.12).
+            The model <em>read</em> the rules in early layers but didn't <em>retain</em> them through to the
+            output layer &mdash; so it generated plausible but non-compliant text. The optimized prompt's
+            structural changes (reordering, separation, echo) increased policy terminal attention to 0.061
+            and retention to 0.38. The rules are now active in the layers that directly shape token generation.
+        </p>
+        <p>
+            This is the core insight: <strong>attention at the output layer predicts behavioral compliance.</strong>
+            A prompt region the model doesn't attend to at generation time might as well not exist.
+        </p>
+    </div>
+
+    <h3>Step 6: Metric comparison</h3>
+    <p>
+        Side-by-side metrics confirm the improvement is systematic, not anecdotal:
+    </p>
+
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Target</th>
+            <th>v0 (Before)</th>
+            <th>v3 (After)</th>
+            <th>Satisfied?</th>
+        </tr>
+        <tr>
+            <td><code>terminal_attention_policy</code></td>
+            <td>&gt; 0.05</td>
+            <td style="color: var(--red);">0.018</td>
+            <td style="color: var(--green);">0.061</td>
+            <td style="color: var(--green);">&#10003;</td>
+        </tr>
+        <tr>
+            <td><code>retention_ratio_policy</code></td>
+            <td>&gt; 0.30</td>
+            <td style="color: var(--red);">0.12</td>
+            <td style="color: var(--green);">0.38</td>
+            <td style="color: var(--green);">&#10003;</td>
+        </tr>
+        <tr>
+            <td><code>peak_layer_frac_policy</code></td>
+            <td>&lt; 0.35</td>
+            <td style="color: var(--green);">0.09</td>
+            <td style="color: var(--green);">0.11</td>
+            <td style="color: var(--green);">&#10003;</td>
+        </tr>
+        <tr>
+            <td><code>context_bleed_ratio</code></td>
+            <td>&lt; 3.0</td>
+            <td style="color: var(--orange);">1.80</td>
+            <td style="color: var(--green);">0.92</td>
+            <td style="color: var(--green);">&#10003;</td>
+        </tr>
+        <tr>
+            <td><code>density_cv</code></td>
+            <td>&lt; 2.0</td>
+            <td style="color: var(--green);">0.45</td>
+            <td style="color: var(--green);">0.51</td>
+            <td style="color: var(--green);">&#10003;</td>
+        </tr>
+        <tr style="border-top: 2px solid var(--border);">
+            <td><strong>Composite score</strong></td>
+            <td>&gt; 0.85</td>
+            <td style="color: var(--red);"><strong>0.412</strong></td>
+            <td style="color: var(--green);"><strong>0.871</strong></td>
+            <td style="color: var(--green);">&#10003;</td>
+        </tr>
+    </table>
+
+    <h3>Step 7: Verify independently</h3>
+    <p>
+        The optimizer's metrics are computed during the loop. You can verify them independently
+        by running the standard Promptastic analysis on both prompts and comparing:
     </p>
 
     <div class="code-block">
@@ -805,6 +965,17 @@ Agent: I apologize for the delay. Let me check your shipping status...</pre>
     <span class="flag">--base-dir</span> ./ \
     <span class="flag">--variants</span> results_v0:Original results_optimized:Optimized \
     <span class="flag">--metrics</span> all</pre>
+    </div>
+
+    <div class="callout insight">
+        <div class="callout-title">What to look for in the comparison</div>
+        <p>
+            In the cooking curves, the optimized prompt's policy region should show a higher
+            terminal value (retained attention) and a flatter late-layer trajectory. In the
+            patching grid, the policy region should show stronger KL divergence in output layers,
+            confirming it causally influences the generated text. The head grid should show
+            at least one specialist head attending to the policy region at the terminal layer.
+        </p>
     </div>
 </section>
 
