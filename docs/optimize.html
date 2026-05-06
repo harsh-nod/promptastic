@@ -660,6 +660,117 @@
 
 <!-- ================================================================ -->
 <section>
+    <h2>Multi-turn split</h2>
+    <p>
+        Sometimes no amount of reordering or emphasis fixes the root problem: the prompt has
+        too many regions competing for attention in a single system message. When this happens,
+        the optimizer can <strong>automatically split the prompt into multiple conversation
+        turns</strong>.
+    </p>
+
+    <h3>When does it trigger?</h3>
+    <p>
+        The split is suggested as a compound diagnostic signal, not a single metric:
+    </p>
+    <ul>
+        <li><strong>3+ regions</strong> have retention ratio satisfaction &lt; 0.5 (widespread retention failure)</li>
+        <li><strong>Severe context bleed + imbalance</strong> &mdash; bleed satisfaction &lt; 0.3 and density CV satisfaction &lt; 0.5</li>
+        <li><strong>Example regions</strong> (approved_responses, few_shot, demonstrations) have retention satisfaction &lt; 0.4</li>
+    </ul>
+
+    <h3>What does it do?</h3>
+    <p>
+        Each region is classified and handled differently:
+    </p>
+    <table>
+        <tr><th>Classification</th><th>Regions</th><th>Action</th></tr>
+        <tr>
+            <td><strong>Keep</strong></td>
+            <td><code>rules</code>, <code>policy</code>, <code>directive</code>, <code>output_format</code></td>
+            <td>Stays in the system prompt</td>
+        </tr>
+        <tr>
+            <td><strong>Example</strong></td>
+            <td><code>examples</code>, <code>few_shot</code>, <code>approved_responses</code></td>
+            <td>Parsed into user/assistant turn pairs</td>
+        </tr>
+        <tr>
+            <td><strong>Context</strong></td>
+            <td><code>context</code>, <code>background</code>, <code>history</code></td>
+            <td>Becomes a context-setting user turn</td>
+        </tr>
+    </table>
+
+    <p>
+        For example regions, the optimizer parses <code>Customer:/Agent:</code>,
+        <code>User:/Assistant:</code>, or <code>Human:/AI:</code> patterns and converts each
+        pair into a real conversation turn. If no pattern is found, the entire region is
+        wrapped as a single user turn.
+    </p>
+
+    <h3>Example: before and after split</h3>
+    <p>
+        Using our customer support prompt, the split extracts the <code>approved_responses</code>
+        region (3 Customer/Agent pairs) into 6 prefix turns:
+    </p>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0;">
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 12px; font-weight: 600;">Before: 1 system message</div>
+            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.6;">
+                <span style="color: var(--accent);">[system]</span> You are an enterprise customer support agent...<br>
+                &nbsp;&nbsp;## Policy<br>
+                &nbsp;&nbsp;- Always greet the customer...<br>
+                &nbsp;&nbsp;## Approved Responses<br>
+                &nbsp;&nbsp;Customer: I want a refund<br>
+                &nbsp;&nbsp;Agent: I understand your concern...<br>
+                &nbsp;&nbsp;Customer: Your product broke...<br>
+                &nbsp;&nbsp;Agent: I'm sorry to hear that...<br>
+                &nbsp;&nbsp;Customer: I've been waiting...<br>
+                &nbsp;&nbsp;Agent: I apologize for the delay...<br>
+                <span style="color: var(--accent);">[user]</span> My order #4521 was supposed to arrive...
+            </div>
+        </div>
+        <div style="background: var(--surface); border: 1px solid var(--green); border-radius: 8px; padding: 20px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 12px; font-weight: 600;">After: system + 6 prefix turns</div>
+            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.6;">
+                <span style="color: var(--accent);">[system]</span> You are an enterprise customer support agent...<br>
+                &nbsp;&nbsp;## Policy<br>
+                &nbsp;&nbsp;- Always greet the customer...<br>
+                <span style="color: var(--green);">[user]</span> I want a refund<br>
+                <span style="color: var(--green);">[assistant]</span> I understand your concern...<br>
+                <span style="color: var(--green);">[user]</span> Your product broke after one week<br>
+                <span style="color: var(--green);">[assistant]</span> I'm sorry to hear that...<br>
+                <span style="color: var(--green);">[user]</span> I've been waiting 3 weeks...<br>
+                <span style="color: var(--green);">[assistant]</span> I apologize for the delay...<br>
+                <span style="color: var(--accent);">[user]</span> My order #4521 was supposed to arrive...
+            </div>
+        </div>
+    </div>
+
+    <div class="callout insight">
+        <div class="callout-title">Why does this help?</div>
+        <p>
+            Transformers process each turn through the full attention mechanism independently before
+            attending to the next. When examples are in the system prompt, they're a block of text
+            competing with rules for attention. As separate turns, each example gets its own
+            turn-boundary attention reset &mdash; the model processes each example/response pair
+            as a complete interaction, building stronger few-shot priming. Meanwhile, the system
+            prompt is shorter and denser, so rules get more attention per token.
+        </p>
+    </div>
+
+    <p>
+        When a split is applied, the optimizer saves two files:
+    </p>
+    <ul>
+        <li><code>prompt.txt</code> &mdash; the reduced system prompt (rules only)</li>
+        <li><code>prefix_turns.json</code> &mdash; the extracted turn pairs</li>
+    </ul>
+</section>
+
+<!-- ================================================================ -->
+<section>
     <h2>Example: Customer support prompt</h2>
     <p>
         This walkthrough uses a customer support agent prompt with two regions (policy rules

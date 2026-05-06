@@ -106,6 +106,119 @@ def build_chat_tokens(
     return token_ids, boundaries
 
 
+def build_chat_tokens_multi(
+    tokenizer: Any,
+    messages: list[dict[str, str]],
+) -> tuple[list[int], dict[str, tuple[int, int]]]:
+    """Build a token sequence from an arbitrary message list.
+
+    Generalises :func:`build_chat_tokens` to support prefix conversation
+    turns (e.g. few-shot examples extracted from the system prompt).
+
+    The returned *piece_boundaries* use the following key convention:
+
+    - ``"system_prompt"`` for the system message
+    - ``"prefix_turn_0"``, ``"prefix_turn_1"``, ... for prefix turns
+    - ``"user_message"`` for the final user message
+    - ``"response"`` for the final assistant message
+    - ``"chat_template"`` for all non-content token positions
+    """
+    if not messages:
+        return [], {}
+
+    try:
+        token_ids = _apply_chat_template(tokenizer, messages)
+    except Exception as exc:
+        if "system" in str(exc).lower():
+            logger.info(
+                "Model does not support system role -- merging into first user message"
+            )
+            merged = list(messages)
+            if merged and merged[0]["role"] == "system":
+                sys_content = merged.pop(0)["content"]
+                if merged and merged[0]["role"] == "user":
+                    merged[0] = {
+                        "role": "user",
+                        "content": sys_content + "\n" + merged[0]["content"],
+                    }
+                else:
+                    merged.insert(0, {"role": "user", "content": sys_content})
+            token_ids = _apply_chat_template(tokenizer, merged)
+        else:
+            raise
+
+    full_decoded: str = tokenizer.decode(token_ids, skip_special_tokens=False)
+
+    # Assign piece names to each message.
+    piece_names = _assign_piece_names(messages)
+
+    # Locate each content piece via sequential string search.
+    boundaries: dict[str, tuple[int, int]] = {}
+    search_from = 0
+
+    for piece_name, msg in zip(piece_names, messages):
+        piece_text = msg["content"]
+        if not piece_text:
+            continue
+
+        char_pos = full_decoded.find(piece_text, search_from)
+        if char_pos < 0:
+            logger.warning("Could not locate '%s' in decoded text", piece_name)
+            continue
+
+        char_end = char_pos + len(piece_text)
+        tok_start = char_to_token_bisect(tokenizer, token_ids, char_pos)
+        tok_end = char_to_token_bisect(tokenizer, token_ids, char_end - 1) + 1
+        boundaries[piece_name] = (tok_start, tok_end)
+        search_from = char_end
+
+    # chat_template = positions not covered by any content piece.
+    content_indices: set[int] = set()
+    for start, end in boundaries.values():
+        content_indices.update(range(start, end))
+
+    template_indices = set(range(len(token_ids))) - content_indices
+    if template_indices:
+        boundaries["chat_template"] = (
+            min(template_indices),
+            max(template_indices) + 1,
+        )
+
+    return token_ids, boundaries
+
+
+def _assign_piece_names(messages: list[dict[str, str]]) -> list[str]:
+    """Assign stable piece names to each message in the list.
+
+    Convention: system → ``system_prompt``, final user → ``user_message``,
+    final assistant → ``response``, intermediate → ``prefix_turn_N``.
+    """
+    names: list[str] = []
+    prefix_idx = 0
+
+    # Find the last user and last assistant indices.
+    last_user_idx = -1
+    last_assistant_idx = -1
+    for i, msg in enumerate(messages):
+        if msg["role"] == "user":
+            last_user_idx = i
+        elif msg["role"] == "assistant":
+            last_assistant_idx = i
+
+    for i, msg in enumerate(messages):
+        if msg["role"] == "system":
+            names.append("system_prompt")
+        elif i == last_user_idx:
+            names.append("user_message")
+        elif i == last_assistant_idx:
+            names.append("response")
+        else:
+            names.append(f"prefix_turn_{prefix_idx}")
+            prefix_idx += 1
+
+    return names
+
+
 # ======================================================================
 # Character-to-token mapping
 # ======================================================================
@@ -223,8 +336,8 @@ def build_full_region_map(
     """Assemble a complete token-level region map from character annotations.
 
     Includes top-level pieces (``system_prompt``, ``user_message``,
-    ``response``, ``chat_template``) and all character-level sub-regions
-    within each piece.
+    ``response``, ``chat_template``, and any ``prefix_turn_*`` pieces)
+    and all character-level sub-regions within each piece.
 
     Returns
     -------
@@ -232,15 +345,13 @@ def build_full_region_map(
     """
     region_map: dict[str, dict[str, int]] = {}
 
-    # -- Top-level pieces --
-    for piece_name in ("system_prompt", "user_message", "response", "chat_template"):
-        if piece_name in piece_boundaries:
-            start, end = piece_boundaries[piece_name]
-            region_map[piece_name] = {
-                "tok_start": start,
-                "tok_end": end,
-                "n_tokens": end - start,
-            }
+    # -- Top-level pieces (including any prefix_turn_* boundaries) --
+    for piece_name, (start, end) in piece_boundaries.items():
+        region_map[piece_name] = {
+            "tok_start": start,
+            "tok_end": end,
+            "n_tokens": end - start,
+        }
 
     # -- Sub-regions within each piece --
     _resolve_piece_subregions(

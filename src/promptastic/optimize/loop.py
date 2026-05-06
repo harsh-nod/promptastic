@@ -21,6 +21,7 @@ from ._types import (
     OptimizationConfig,
     OptimizationResult,
     OptimizationScore,
+    PromptSpec,
 )
 from .diagnostics import diagnose, format_diagnostic_report
 from .extract import extract_all_metrics
@@ -87,11 +88,12 @@ def optimize_prompt(
         from .rewriter import LLMRewriter
         rewriter = LLMRewriter(config.rewrite_model, config.rewrite_api_key)
 
-    current_prompt = system_prompt
+    current_spec = PromptSpec.from_string(system_prompt)
     history: list[IterationRecord] = []
     best_score = -1.0
     best_iteration = -1
     best_prompt = system_prompt
+    best_prefix_turns: list[dict[str, str]] = []
     best_regions: dict[str, Any] = {}
     stale_count = 0
     total_passes = 0
@@ -100,10 +102,14 @@ def optimize_prompt(
         iter_start = time.time()
 
         # 1. Build test cases with current prompt
-        test_data = build_test_cases(current_prompt, conversations, region_config)
+        test_data = build_test_cases(
+            current_spec.system_prompt, conversations, region_config,
+            prefix_turns=current_spec.prefix_turns or None,
+        )
         system_regions = test_data.get("system_regions", {})
         position_defs = test_data.get("query_positions", {})
         tracked_tokens = test_data.get("tracked_tokens", [])
+        prefix_turns = test_data.get("prefix_turns")
 
         # 2. Run analysis on all cases
         case_results: list[dict[str, Any]] = []
@@ -113,11 +119,12 @@ def optimize_prompt(
                 tokenizer=tokenizer,
                 adapter=adapter,
                 case=case,
-                system_prompt=current_prompt,
+                system_prompt=current_spec.system_prompt,
                 system_regions=system_regions,
                 capture_config=capture_config,
                 position_defs=position_defs,
                 tracked_tokens=tracked_tokens,
+                prefix_turns=prefix_turns,
             )
             case_results.append(result)
             total_passes += _count_forward_passes(result, capture_config)
@@ -163,13 +170,14 @@ def optimize_prompt(
         wall_time = time.time() - iter_start
         record = IterationRecord(
             iteration=iteration,
-            prompt_text=current_prompt,
+            prompt_text=current_spec.system_prompt,
             regions=system_regions,
             metrics=metrics,
             score=score,
             mutation_applied=None,
             forward_passes=total_passes,
             wall_time_seconds=wall_time,
+            prefix_turns=list(current_spec.prefix_turns),
         )
         history.append(record)
 
@@ -179,7 +187,8 @@ def optimize_prompt(
         if score.total > best_score + config.min_improvement:
             best_score = score.total
             best_iteration = iteration
-            best_prompt = current_prompt
+            best_prompt = current_spec.system_prompt
+            best_prefix_turns = list(current_spec.prefix_turns)
             best_regions = system_regions
             stale_count = 0
         else:
@@ -188,14 +197,17 @@ def optimize_prompt(
         if score.total >= config.target_score:
             return _build_result(
                 history, best_prompt, best_regions, True, "target_reached",
+                best_prefix_turns,
             )
         if stale_count >= config.patience:
             return _build_result(
                 history, best_prompt, best_regions, True, "plateau",
+                best_prefix_turns,
             )
         if total_passes >= config.max_forward_passes:
             return _build_result(
                 history, best_prompt, best_regions, False, "budget_exhausted",
+                best_prefix_turns,
             )
 
         # 8. Diagnose and mutate
@@ -203,9 +215,11 @@ def optimize_prompt(
         if not report.issues:
             return _build_result(
                 history, best_prompt, best_regions, True, "all_satisfied",
+                best_prefix_turns,
             )
 
         mutation_applied: MutationRecord | None = None
+        new_spec: PromptSpec = current_spec
         use_structural = (
             config.mutation_strategy == "structural"
             or (
@@ -215,34 +229,46 @@ def optimize_prompt(
         )
 
         if use_structural:
-            new_prompt, mutation_applied = mutator.apply_best_mutation(
-                current_prompt, region_config, report,
+            new_spec, mutation_applied = mutator.apply_best_mutation(
+                current_spec, region_config, report,
             )
         elif rewriter is not None:
             new_prompt, mutation_applied = rewriter.apply_best_rewrite(
-                current_prompt, region_config, report,
+                current_spec.system_prompt, region_config, report,
             )
+            if mutation_applied and new_prompt != current_spec.system_prompt:
+                new_spec = PromptSpec(
+                    system_prompt=new_prompt,
+                    prefix_turns=list(current_spec.prefix_turns),
+                    has_been_split=current_spec.has_been_split,
+                )
         else:
             # No LLM rewriter available, fall back to structural
-            new_prompt, mutation_applied = mutator.apply_best_mutation(
-                current_prompt, region_config, report,
+            new_spec, mutation_applied = mutator.apply_best_mutation(
+                current_spec, region_config, report,
             )
 
         record.mutation_applied = mutation_applied
         if mutation_applied:
             _print_mutation(mutation_applied)
 
-        # Only update prompt if mutation was applied
-        if mutation_applied is not None and new_prompt != current_prompt:
-            current_prompt = new_prompt
+        # Only update if mutation was applied and something changed
+        spec_changed = (
+            new_spec.system_prompt != current_spec.system_prompt
+            or new_spec.prefix_turns != current_spec.prefix_turns
+        )
+        if mutation_applied is not None and spec_changed:
+            current_spec = new_spec
         else:
             # No mutation possible, stop
             return _build_result(
                 history, best_prompt, best_regions, False, "no_mutations_available",
+                best_prefix_turns,
             )
 
     return _build_result(
         history, best_prompt, best_regions, False, "max_iterations",
+        best_prefix_turns,
     )
 
 
@@ -265,6 +291,7 @@ def _build_result(
     best_regions: dict[str, Any],
     converged: bool,
     reason: str,
+    best_prefix_turns: list[dict[str, str]] | None = None,
 ) -> OptimizationResult:
     """Construct the final result from history."""
     total_passes = history[-1].forward_passes if history else 0
@@ -283,6 +310,7 @@ def _build_result(
         total_wall_time_seconds=total_time,
         converged=converged,
         convergence_reason=reason,
+        best_prefix_turns=best_prefix_turns or [],
     )
 
 
@@ -314,6 +342,13 @@ def _save_results(
 
     # Best prompt
     (output_dir / "prompt.txt").write_text(result.best_prompt, encoding="utf-8")
+
+    # Prefix turns (multi-turn split results)
+    if result.best_prefix_turns:
+        (output_dir / "prefix_turns.json").write_text(
+            json.dumps(result.best_prefix_turns, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     # History log
     log = {
@@ -539,6 +574,8 @@ def main() -> None:
     print(f"Total time: {result.total_wall_time_seconds:.1f}s")
     print(f"\nOutputs saved to {output_dir}/")
     print(f"  prompt.txt              -- optimized prompt")
+    if result.best_prefix_turns:
+        print(f"  prefix_turns.json       -- multi-turn prefix ({len(result.best_prefix_turns)} turns)")
     print(f"  optimization_log.json   -- iteration history")
     print(f"  report.md               -- summary report")
 

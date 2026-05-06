@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ._types import DiagnosticReport, MutationRecord
+from ._types import DiagnosticReport, MutationRecord, PromptSpec
 
 
 class StructuralMutator:
@@ -315,39 +315,70 @@ class StructuralMutator:
 
     def apply_best_mutation(
         self,
-        prompt: str,
+        spec: str | PromptSpec,
         region_config: dict[str, Any],
         report: DiagnosticReport,
-    ) -> tuple[str, MutationRecord | None]:
+    ) -> tuple[PromptSpec, MutationRecord | None]:
         """Apply the most impactful structural mutation based on diagnostics.
 
         Picks the first failing issue that has a structural mutation
-        suggestion and applies it.
+        suggestion and applies it.  Accepts either a plain prompt string
+        or a ``PromptSpec`` and always returns a ``PromptSpec``.
         """
+        if isinstance(spec, str):
+            spec = PromptSpec.from_string(spec)
+
         structural_ops = {
             "insert_separator",
             "reorder_sections",
             "duplicate_summary",
             "adjust_emphasis",
             "adjust_section_length",
+            "split_to_turns",
         }
 
         for issue in report.issues:
             if issue.suggested_mutation not in structural_ops:
                 continue
 
+            # Handle multi-turn split separately.
+            if issue.suggested_mutation == "split_to_turns":
+                if spec.has_been_split:
+                    continue  # already split, skip
+                from .split import split_to_turns
+
+                return split_to_turns(
+                    spec.system_prompt, region_config, report,
+                )
+
             region = _extract_region_from_metric(issue.metric_name)
 
             if issue.suggested_mutation == "insert_separator":
-                return self.insert_separator(prompt, region_config, region)
-            if issue.suggested_mutation == "reorder_sections":
-                return self.reorder_sections(prompt, region_config, region)
-            if issue.suggested_mutation == "duplicate_summary":
-                return self.duplicate_summary(prompt, region_config, region)
-            if issue.suggested_mutation == "adjust_emphasis":
-                return self.adjust_emphasis(prompt, region_config, region)
+                new_text, record = self.insert_separator(
+                    spec.system_prompt, region_config, region,
+                )
+            elif issue.suggested_mutation == "reorder_sections":
+                new_text, record = self.reorder_sections(
+                    spec.system_prompt, region_config, region,
+                )
+            elif issue.suggested_mutation == "duplicate_summary":
+                new_text, record = self.duplicate_summary(
+                    spec.system_prompt, region_config, region,
+                )
+            elif issue.suggested_mutation == "adjust_emphasis":
+                new_text, record = self.adjust_emphasis(
+                    spec.system_prompt, region_config, region,
+                )
+            else:
+                continue
 
-        return prompt, None
+            return PromptSpec(
+                system_prompt=new_text,
+                prefix_turns=list(spec.prefix_turns),
+                has_been_split=spec.has_been_split,
+            ), record
+
+        return spec, None
 
 
 def _extract_region_from_metric(metric_name: str) -> str:

@@ -156,10 +156,11 @@ class TestApplyBestMutation:
         )
         # No matching region for context_bleed_ratio, so it won't find one
         # But the method shouldn't crash
-        new_prompt, record = mutator.apply_best_mutation(
+        new_spec, record = mutator.apply_best_mutation(
             SAMPLE_PROMPT, SAMPLE_CONFIG, report,
         )
-        assert isinstance(new_prompt, str)
+        from promptastic.optimize._types import PromptSpec
+        assert isinstance(new_spec, PromptSpec)
 
     def test_skips_llm_mutations(self):
         mutator = StructuralMutator()
@@ -179,20 +180,20 @@ class TestApplyBestMutation:
             num_failing=1,
             num_total=1,
         )
-        new_prompt, record = mutator.apply_best_mutation(
+        new_spec, record = mutator.apply_best_mutation(
             SAMPLE_PROMPT, SAMPLE_CONFIG, report,
         )
         # Should skip llm_rewrite and return None
         assert record is None
-        assert new_prompt == SAMPLE_PROMPT
+        assert new_spec.system_prompt == SAMPLE_PROMPT
 
     def test_no_issues(self):
         mutator = StructuralMutator()
         report = DiagnosticReport(
             issues=[], overall_score=1.0, num_failing=0, num_total=5,
         )
-        new_prompt, record = mutator.apply_best_mutation(
+        new_spec, record = mutator.apply_best_mutation(
             SAMPLE_PROMPT, SAMPLE_CONFIG, report,
         )
         assert record is None
-        assert new_prompt == SAMPLE_PROMPT
+        assert new_spec.system_prompt == SAMPLE_PROMPT

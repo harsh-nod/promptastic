@@ -108,6 +108,9 @@ def diagnose(
     # Sort by satisfaction ascending (worst first)
     issues.sort(key=lambda i: i.satisfaction)
 
+    # Check compound conditions that suggest a multi-turn split.
+    _check_split_trigger(issues, score, satisfaction_threshold)
+
     num_failing = len(issues)
     num_total = score.num_total
 
@@ -117,6 +120,92 @@ def diagnose(
         num_failing=num_failing,
         num_total=num_total,
     )
+
+
+# Regions that are candidates for multi-turn extraction.
+_EXAMPLE_REGION_NAMES = frozenset({
+    "examples", "few_shot", "demonstrations", "approved_responses",
+    "sample_responses", "templates",
+})
+
+
+def _check_split_trigger(
+    issues: list[DiagnosticIssue],
+    score: OptimizationScore,
+    satisfaction_threshold: float,
+) -> None:
+    """Inject a ``split_to_turns`` issue when compound conditions indicate
+    that the prompt is overloaded and should be decomposed.
+
+    Mutates *issues* in-place by prepending the split issue at index 0
+    (highest priority).
+    """
+    # Already has a split suggestion — skip.
+    if any(i.suggested_mutation == "split_to_turns" for i in issues):
+        return
+
+    should_split = False
+    trigger_reason = ""
+
+    # Condition 1: 3+ regions with failing retention ratios.
+    failing_retention = [
+        i for i in issues
+        if i.metric_name.startswith("retention_ratio_") and i.satisfaction < 0.5
+    ]
+    if len(failing_retention) >= 3:
+        should_split = True
+        regions = [_extract_region(i.metric_name) for i in failing_retention]
+        trigger_reason = (
+            f"{len(failing_retention)} regions have low retention "
+            f"({', '.join(regions)}); splitting may reduce overload"
+        )
+
+    # Condition 2: severe context bleed + attention imbalance.
+    if not should_split:
+        bleed = score.per_metric.get("context_bleed_ratio")
+        density = score.per_metric.get("density_cv")
+        if (
+            bleed and bleed.satisfaction < 0.3
+            and density and density.satisfaction < 0.5
+        ):
+            should_split = True
+            trigger_reason = (
+                f"Context bleed ({bleed.value:.2f}) and density imbalance "
+                f"({density.value:.2f}) suggest multi-turn decomposition"
+            )
+
+    # Condition 3: example-like region with poor retention.
+    if not should_split:
+        for name, ms in score.per_metric.items():
+            if not name.startswith("retention_ratio_"):
+                continue
+            region = _extract_region(name)
+            if region in _EXAMPLE_REGION_NAMES and ms.satisfaction < 0.4:
+                should_split = True
+                trigger_reason = (
+                    f"Example region '{region}' has low retention "
+                    f"({ms.value:.2f}); extracting as turns may improve salience"
+                )
+                break
+
+    if not should_split:
+        return
+
+    # Find a representative metric to anchor the issue on.
+    anchor = issues[0] if issues else None
+    anchor_target = anchor.target if anchor else MetricTarget(
+        name="split_trigger", direction="above",
+    )
+
+    split_issue = DiagnosticIssue(
+        metric_name="split_trigger",
+        value=score.total,
+        satisfaction=0.0,
+        target=anchor_target,
+        suggested_mutation="split_to_turns",
+        reason=trigger_reason,
+    )
+    issues.insert(0, split_issue)
 
 
 def format_diagnostic_report(report: DiagnosticReport) -> str:

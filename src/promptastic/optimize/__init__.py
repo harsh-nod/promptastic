@@ -30,6 +30,7 @@ from ._types import (
     OptimizationConfig,
     OptimizationResult,
     OptimizationScore,
+    PromptSpec,
 )
 from .loop import optimize_prompt
 
@@ -43,5 +44,6 @@ __all__ = [
     "OptimizationConfig",
     "OptimizationResult",
     "OptimizationScore",
+    "PromptSpec",
     "optimize_prompt",
 ]

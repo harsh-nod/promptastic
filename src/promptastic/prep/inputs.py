@@ -74,6 +74,7 @@ def build_test_cases(
     conversations: list[dict[str, Any]],
     region_config: dict[str, Any],
     capture_config: dict[str, Any] | None = None,
+    prefix_turns: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the full test-cases structure from its constituent parts.
 
@@ -91,6 +92,10 @@ def build_test_cases(
     capture_config:
         Optional dict describing which engine capture modes to enable
         (attention, logit_lens, per_head, patching, etc.).
+    prefix_turns:
+        Optional list of user/assistant message dicts to insert between
+        the system prompt and the final user message.  Used when the
+        optimizer has split a monolithic prompt into multi-turn format.
 
     Returns
     -------
@@ -146,6 +151,9 @@ def build_test_cases(
         "capture_config": capture_config if capture_config is not None else {},
         "cases": cases,
     }
+
+    if prefix_turns:
+        output["prefix_turns"] = prefix_turns
 
     return output
 

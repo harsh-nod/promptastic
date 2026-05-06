@@ -55,6 +55,39 @@ class MutationRecord:
 
 
 @dataclass
+class PromptSpec:
+    """A prompt that may span multiple conversation turns.
+
+    The system_prompt is always the system message.  prefix_turns are
+    additional user/assistant exchanges inserted *after* the system
+    message and *before* the final user message in the chat template.
+    """
+
+    system_prompt: str
+    prefix_turns: list[dict[str, str]] = field(default_factory=list)
+    # Each entry: {"role": "user"|"assistant", "content": "..."}
+    has_been_split: bool = False  # prevents the split mutation from firing twice
+
+    @classmethod
+    def from_string(cls, text: str) -> PromptSpec:
+        """Create a single-turn spec from a plain prompt string."""
+        return cls(system_prompt=text)
+
+    def to_messages(
+        self, user_message: str, response: str = "",
+    ) -> list[dict[str, str]]:
+        """Build the full message list for tokenization."""
+        msgs: list[dict[str, str]] = [
+            {"role": "system", "content": self.system_prompt},
+        ]
+        msgs.extend(self.prefix_turns)
+        msgs.append({"role": "user", "content": user_message})
+        if response:
+            msgs.append({"role": "assistant", "content": response})
+        return msgs
+
+
+@dataclass
 class IterationRecord:
     """Full record of a single optimization iteration."""
 
@@ -66,6 +99,7 @@ class IterationRecord:
     mutation_applied: MutationRecord | None
     forward_passes: int
     wall_time_seconds: float
+    prefix_turns: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -81,6 +115,7 @@ class OptimizationResult:
     total_wall_time_seconds: float
     converged: bool
     convergence_reason: str  # "target_reached", "plateau", "budget_exhausted", "max_iterations"
+    best_prefix_turns: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass

@@ -320,19 +320,41 @@ def analyze_case(
     top_k: int = 50,
     position_defs: dict[str, Any] | None = None,
     tracked_tokens: list[str] | None = None,
+    prefix_turns: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Run full MI analysis on a single test case.
 
     Orchestrates: tokenization -> hook registration -> forward pass ->
     post-processing -> optional multi-pass modes (patching, generation).
+
+    Parameters
+    ----------
+    prefix_turns:
+        Optional list of user/assistant message dicts to insert between
+        the system prompt and the final user message.  Used when the
+        optimizer has split a monolithic prompt into multi-turn format.
     """
     case_start = time.time()
     case_id = case.get("id", "unknown")
 
     # 1. Build token sequence and region map
-    token_ids, piece_boundaries = build_chat_tokens(
-        tokenizer, system_prompt, case["user_message"], case.get("response", "")
-    )
+    if prefix_turns:
+        from .tokenization import build_chat_tokens_multi
+
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(prefix_turns)
+        messages.append({"role": "user", "content": case["user_message"]})
+        resp = case.get("response", "")
+        if resp:
+            messages.append({"role": "assistant", "content": resp})
+
+        token_ids, piece_boundaries = build_chat_tokens_multi(
+            tokenizer, messages,
+        )
+    else:
+        token_ids, piece_boundaries = build_chat_tokens(
+            tokenizer, system_prompt, case["user_message"], case.get("response", "")
+        )
 
     region_map = build_full_region_map(
         tokenizer,
