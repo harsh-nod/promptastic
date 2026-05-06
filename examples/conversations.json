@@ -1,0 +1,14 @@
+[
+  {
+    "id": "two_sum",
+    "user_message": "Write a Python function that finds the two numbers in a list that add up to a target sum. Return their indices."
+  },
+  {
+    "id": "stack_vs_queue",
+    "user_message": "Explain the difference between a stack and a queue, then implement both in Python."
+  },
+  {
+    "id": "memoization",
+    "user_message": "What is memoization and when should I use it? Show me an example with the Fibonacci sequence."
+  }
+]

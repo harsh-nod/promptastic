@@ -66,7 +66,8 @@ def compute_logit_lens(
             h_dev = h.unsqueeze(0).unsqueeze(0).to(device)
             with torch.no_grad():
                 h_normed = norm(h_dev)
-                logits = lm_head(h_normed).squeeze().float()
+                lm_dtype = next(lm_head.parameters()).dtype
+                logits = lm_head(h_normed.to(lm_dtype)).squeeze().float()
                 probs = F.softmax(logits, dim=-1)
 
             top_vals, top_ids = torch.topk(logits, min(top_k, logits.shape[-1]))
@@ -233,7 +234,8 @@ def aggregate_mlp_data(
             mlp_dev = mlp_out.unsqueeze(0).unsqueeze(0).to(device)
             with torch.no_grad():
                 mlp_normed = norm(mlp_dev)
-                mlp_logits = lm_head(mlp_normed).squeeze().float()
+                lm_dtype = next(lm_head.parameters()).dtype
+                mlp_logits = lm_head(mlp_normed.to(lm_dtype)).squeeze().float()
 
             top_vals, top_ids = torch.topk(mlp_logits, min(top_k, mlp_logits.shape[-1]))
             promoted_tokens = []

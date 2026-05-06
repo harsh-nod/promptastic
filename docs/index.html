@@ -313,6 +313,85 @@
         footer a { color: var(--accent); text-decoration: none; }
         footer a:hover { text-decoration: underline; }
 
+        /* Examples gallery */
+        .examples {
+            padding: 60px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .examples h2 {
+            font-size: 1.75rem;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        .examples .subtitle {
+            text-align: center;
+            color: var(--text-dim);
+            margin-bottom: 40px;
+        }
+
+        .example-group {
+            margin-bottom: 48px;
+        }
+
+        .example-group h3 {
+            font-size: 1.1rem;
+            margin-bottom: 4px;
+            color: var(--accent);
+        }
+
+        .example-group .model-info {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 16px;
+        }
+
+        .example-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        @media (max-width: 640px) {
+            .example-grid { grid-template-columns: 1fr; }
+        }
+
+        .example-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+
+        .example-item:hover { border-color: var(--accent); }
+
+        .example-item img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .example-item .caption {
+            padding: 12px 16px;
+            font-size: 0.85rem;
+        }
+
+        .example-item .caption .title {
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .example-item .caption .desc {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+
+        .example-item.wide {
+            grid-column: 1 / -1;
+        }
+
         /* Table */
         .compat-table {
             width: 100%;
@@ -515,6 +594,69 @@ python -m promptastic.render.feature_dashboard --result results/case_0.json</pre
     --base-dir results/ \
     --variants baseline:Baseline modified:Modified \
     --metrics all,patching,gradient</pre>
+        </div>
+    </div>
+</section>
+
+<section class="examples">
+    <div class="container">
+        <h2>Example output</h2>
+        <p class="subtitle">Real analysis results generated on AMD Instinct MI350X GPUs.</p>
+
+        <div class="example-group">
+            <h3>Qwen2.5-3B-Instruct</h3>
+            <p class="model-info">36 layers, 16 heads &mdash; Prompt: coding assistant with rules + examples regions</p>
+            <div class="example-grid">
+                <div class="example-item wide">
+                    <img src="examples/viz_qwen/heatmap.png" alt="Attention heatmap for Qwen2.5-3B" loading="lazy">
+                    <div class="caption">
+                        <div class="title">Per-token attention heatmap</div>
+                        <div class="desc">Terminal-layer attention distribution across all 289 tokens. Brighter = more attention. ChatML tokens masked.</div>
+                    </div>
+                </div>
+                <div class="example-item">
+                    <img src="examples/viz_qwen/cooking_curves.png" alt="Cooking curves for Qwen2.5-3B" loading="lazy">
+                    <div class="caption">
+                        <div class="title">Cooking curves</div>
+                        <div class="desc">Per-region attention trajectories across 36 layers. Rules peak late (L33), examples peak early (L0) with 3.5x decay.</div>
+                    </div>
+                </div>
+                <div class="example-item">
+                    <img src="examples/viz_qwen/patching.png" alt="Activation patching grid for Qwen2.5-3B" loading="lazy">
+                    <div class="caption">
+                        <div class="title">Activation patching grid</div>
+                        <div class="desc">Region x layer causal importance via zero-ablation. Warmer colors = higher KL divergence when region is removed.</div>
+                    </div>
+                </div>
+                <div class="example-item wide">
+                    <img src="examples/viz_qwen/head_grid.png" alt="Per-head attention grid for Qwen2.5-3B" loading="lazy">
+                    <div class="caption">
+                        <div class="title">Per-head attention grid</div>
+                        <div class="desc">16 heads x 6 regions at terminal layers. Reveals specialist heads: some focus exclusively on rules, others on the user message.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="example-group">
+            <h3>Mistral-7B-Instruct-v0.3</h3>
+            <p class="model-info">32 layers, 32 heads &mdash; Same prompt, different model architecture</p>
+            <div class="example-grid">
+                <div class="example-item">
+                    <img src="examples/viz_mistral/heatmap.png" alt="Attention heatmap for Mistral-7B" loading="lazy">
+                    <div class="caption">
+                        <div class="title">Attention heatmap</div>
+                        <div class="desc">Mistral's attention distribution. Note the different tokenization and attention patterns compared to Qwen.</div>
+                    </div>
+                </div>
+                <div class="example-item">
+                    <img src="examples/viz_mistral/patching.png" alt="Activation patching for Mistral-7B" loading="lazy">
+                    <div class="caption">
+                        <div class="title">Activation patching</div>
+                        <div class="desc">Causal importance grid showing which regions matter at which layers in Mistral's 32-layer architecture.</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </section>

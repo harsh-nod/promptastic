@@ -199,8 +199,10 @@ def load_patching_data(path: str) -> list[PatchingResult]:
               "Re-run the engine with --capture patching.")
         sys.exit(1)
 
+    patching = data["patching"]
+    entries = patching.get("results", patching) if isinstance(patching, dict) else patching
     results: list[PatchingResult] = []
-    for entry in data["patching"]:
+    for entry in entries:
         results.append(PatchingResult(
             region=entry["region"],
             layer=entry["layer"],

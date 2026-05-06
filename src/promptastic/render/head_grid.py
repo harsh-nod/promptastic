@@ -271,8 +271,22 @@ def main() -> None:
     print(f"Loading per-head data: {args.result}")
     per_head = load_per_head_data(args.result, args.position)
 
-    # Discover dimensions
+    # Normalize per_region_per_head format to heads-list format
     entries = per_head.get("per_layer", [])
+    for entry in entries:
+        if "per_region_per_head" in entry and "heads" not in entry:
+            prph = entry["per_region_per_head"]
+            n_heads = max((len(v) for v in prph.values()), default=0)
+            heads_list = []
+            for hi in range(n_heads):
+                rw = {}
+                for rname, vals in prph.items():
+                    if hi < len(vals):
+                        rw[rname] = vals[hi]
+                heads_list.append({"head_idx": hi, "region_weights": rw})
+            entry["heads"] = heads_list
+
+    # Discover dimensions
     all_heads: set[int] = set()
     all_regions: set[str] = set()
     max_layer = 0

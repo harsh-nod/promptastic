@@ -1,0 +1,8 @@
+{
+  "system_prompt": {
+    "regions": [
+      {"name": "rules", "start_marker": "## Rules", "end_marker": "## Examples"},
+      {"name": "examples", "start_marker": "## Examples", "end_marker": null}
+    ]
+  }
+}
