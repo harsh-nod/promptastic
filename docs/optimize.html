@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Optimization Guide - Promptastic</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --accent2: #bc8cff;
+            --green: #3fb950;
+            --orange: #d29922;
+            --red: #f85149;
+            --code-bg: #1c2128;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+        }
+
+        /* Navigation */
+        nav {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        nav a {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        nav a:hover { text-decoration: underline; }
+
+        nav .sep { color: var(--text-dim); }
+
+        nav .title {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        /* Article layout */
+        .article {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .article-header {
+            padding: 60px 0 40px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 48px;
+        }
+
+        .article-header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 16px;
+            line-height: 1.2;
+        }
+
+        .article-header .subtitle {
+            font-size: 1.15rem;
+            color: var(--text-dim);
+            max-width: 640px;
+        }
+
+        .article-header .meta {
+            margin-top: 16px;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        /* Sections */
+        section {
+            margin-bottom: 56px;
+        }
+
+        section h2 {
+            font-size: 1.6rem;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        section h3 {
+            font-size: 1.15rem;
+            margin: 24px 0 12px;
+            color: var(--accent);
+        }
+
+        p {
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        p.dim { color: var(--text-dim); }
+
+        /* Code blocks */
+        .code-block {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px 24px;
+            margin: 16px 0 24px;
+            overflow-x: auto;
+        }
+
+        .code-block .label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+
+        .code-block pre {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .code-block pre .comment { color: var(--text-dim); }
+        .code-block pre .keyword { color: var(--accent2); }
+        .code-block pre .marker { color: var(--green); font-weight: 700; }
+        .code-block pre .cmd { color: var(--green); }
+        .code-block pre .flag { color: var(--accent); }
+        .code-block pre .value { color: var(--orange); }
+
+        /* Callout boxes */
+        .callout {
+            background: var(--surface);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 16px 20px;
+            margin: 20px 0;
+        }
+
+        .callout.warning {
+            border-left-color: var(--orange);
+        }
+
+        .callout.insight {
+            border-left-color: var(--green);
+        }
+
+        .callout .callout-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+
+        .callout p {
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            margin-bottom: 0;
+        }
+
+        .callout p + p {
+            margin-top: 8px;
+        }
+
+        /* Lists */
+        ul, ol {
+            margin: 12px 0 16px 24px;
+            color: var(--text-dim);
+        }
+
+        li { margin-bottom: 6px; font-size: 0.95rem; }
+        li strong { color: var(--text); }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0 24px;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td { color: var(--text); }
+
+        td code {
+            background: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem;
+        }
+
+        tr:hover { background: rgba(88, 166, 255, 0.04); }
+
+        /* Metric cards */
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 12px;
+            margin: 24px 0;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .metric-card .category {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--accent);
+            margin-bottom: 6px;
+        }
+
+        .metric-card h4 {
+            font-size: 0.95rem;
+            margin-bottom: 4px;
+        }
+
+        .metric-card p {
+            font-size: 0.82rem;
+            color: var(--text-dim);
+            margin-bottom: 0;
+        }
+
+        .metric-card code {
+            background: var(--code-bg);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.78rem;
+        }
+
+        /* Takeaway cards */
+        .takeaways {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+            margin: 24px 0;
+        }
+
+        .takeaway {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .takeaway .num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: var(--bg);
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .takeaway h4 {
+            font-size: 0.95rem;
+            margin-bottom: 4px;
+        }
+
+        .takeaway p {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 0;
+        }
+
+        /* Loop diagram */
+        .loop-diagram {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            margin: 24px 0;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            overflow-x: auto;
+            text-align: center;
+        }
+
+        .loop-diagram pre {
+            display: inline-block;
+            text-align: left;
+        }
+
+        .loop-diagram .highlight { color: var(--accent); }
+        .loop-diagram .green { color: var(--green); }
+        .loop-diagram .orange { color: var(--orange); }
+        .loop-diagram .dim { color: var(--text-dim); }
+
+        /* Phase bar */
+        .phase-bar {
+            display: flex;
+            margin: 16px 0 24px;
+            border-radius: 6px;
+            overflow: hidden;
+            font-size: 0.75rem;
+            text-align: center;
+        }
+
+        .phase-bar div {
+            padding: 10px 4px;
+            color: white;
+            font-weight: 600;
+        }
+
+        .phase-bar .p-structural { background: var(--accent); flex: 3; }
+        .phase-bar .p-llm { background: var(--accent2); flex: 4; }
+        .phase-bar .p-converge { background: var(--green); flex: 3; }
+
+        /* Score display */
+        .score-example {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px 24px;
+            margin: 16px 0 24px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+        }
+
+        .score-example .good { color: var(--green); }
+        .score-example .bad { color: var(--red); }
+        .score-example .mid { color: var(--orange); }
+        .score-example .dim { color: var(--text-dim); }
+        .score-example .label { color: var(--text-dim); font-size: 0.75rem; }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+            margin-top: 40px;
+        }
+
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 640px) {
+            .article-header h1 { font-size: 1.8rem; }
+            .metric-grid { grid-template-columns: 1fr; }
+            .takeaways { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="index.html">Promptastic</a>
+    <span class="sep">/</span>
+    <a href="guide.html">Tuning Guide</a>
+    <span class="sep">/</span>
+    <span class="title">Prompt Optimization</span>
+</nav>
+
+<div class="article">
+
+<div class="article-header">
+    <h1>Automated prompt optimization with MI metrics</h1>
+    <p class="subtitle">
+        How to use <code>promptastic-optimize</code> to automatically improve a system prompt
+        by targeting specific mechanistic interpretability metrics &mdash; closing the loop
+        from diagnosis to action.
+    </p>
+    <p class="meta">
+        promptastic.optimize &middot; 4 metric categories &middot; 3-tier mutation strategy
+    </p>
+</div>
+
+<!-- ================================================================ -->
+<section>
+    <h2>The idea</h2>
+    <p>
+        The <a href="guide.html">tuning guide</a> showed how to <em>manually</em> diagnose
+        prompt quality with MI diagnostics: run the analysis, read the visualizations, make
+        changes, repeat. That works, but it's slow and requires interpretability expertise.
+    </p>
+    <p>
+        <code>promptastic-optimize</code> automates the loop. You provide a starting prompt,
+        target metrics, and test conversations. The optimizer runs the MI analysis, scores the
+        prompt against your targets, diagnoses failing metrics, applies mutations, and repeats
+        until the prompt meets your criteria or the budget is exhausted.
+    </p>
+
+    <div class="loop-diagram">
+        <pre>
+<span class="dim">User provides:</span> prompt + regions + conversations + targets
+                            <span class="dim">|</span>
+                            <span class="dim">v</span>
+               <span class="dim">+------- Iteration N -------+</span>
+               <span class="dim">|</span>                             <span class="dim">|</span>
+               <span class="dim">|</span>  <span class="highlight">analyze_case()</span>              <span class="dim">|</span>
+               <span class="dim">|</span>       <span class="dim">|</span>                       <span class="dim">|</span>
+               <span class="dim">|</span>  <span class="highlight">extract metrics</span>             <span class="dim">|</span>
+               <span class="dim">|</span>       <span class="dim">|</span>                       <span class="dim">|</span>
+               <span class="dim">|</span>  <span class="highlight">score vs targets</span>            <span class="dim">|</span>
+               <span class="dim">|</span>       <span class="dim">|</span>                       <span class="dim">|</span>
+               <span class="dim">|</span>  <span class="green">converged?</span> <span class="dim">--- yes ---></span> <span class="green">done</span> <span class="dim">|</span>
+               <span class="dim">|</span>       <span class="dim">| no</span>                    <span class="dim">|</span>
+               <span class="dim">|</span>  <span class="orange">diagnose + mutate</span>           <span class="dim">|</span>
+               <span class="dim">|</span>       <span class="dim">|</span>                       <span class="dim">|</span>
+               <span class="dim">+-------+----------- loop ---+</span>
+                            <span class="dim">|</span>
+                            <span class="dim">v</span>
+               <span class="green">OptimizationResult</span>
+               <span class="dim">best prompt + history + scores</span>
+        </pre>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>What it measures</h2>
+    <p>
+        The optimizer targets four categories of metrics, all derived from data that
+        Promptastic already captures during its forward pass analysis.
+    </p>
+
+    <h3>A. Attention routing</h3>
+    <p>
+        Does the model allocate attention to prompt regions in the expected proportions?
+    </p>
+    <div class="metric-grid">
+        <div class="metric-card">
+            <div class="category">Attention</div>
+            <h4>Terminal attention</h4>
+            <p>Mean attention to each region in the final 4 layers. Rules should
+            get at least 5% (<code>&gt; 0.05</code>).</p>
+        </div>
+        <div class="metric-card">
+            <div class="category">Attention</div>
+            <h4>Context bleed ratio</h4>
+            <p>Conversation history / current message attention. Should be <code>&lt; 2.0</code>.
+            Higher means the model is distracted by old turns.</p>
+        </div>
+        <div class="metric-card">
+            <div class="category">Attention</div>
+            <h4>Density CV</h4>
+            <p>Coefficient of variation of per-token density across regions.
+            <code>&lt; 1.0</code> means balanced attention relative to region size.</p>
+        </div>
+    </div>
+
+    <h3>B. Processing dynamics</h3>
+    <p>
+        Do regions follow the expected phase progression through the network?
+    </p>
+    <div class="metric-grid">
+        <div class="metric-card">
+            <div class="category">Dynamics</div>
+            <h4>Peak layer fraction</h4>
+            <p>Where a region's attention peaks as a fraction of total depth. Rules should
+            peak early (<code>&lt; 0.20</code>) &mdash; absorbed in the first 20% of layers.</p>
+        </div>
+        <div class="metric-card">
+            <div class="category">Dynamics</div>
+            <h4>Retention ratio</h4>
+            <p>Terminal / peak attention. Rules should retain &gt; 30% of peak attention
+            (<code>&gt; 0.3</code>) to influence output layers.</p>
+        </div>
+    </div>
+
+    <h3>C. Causal importance</h3>
+    <p>
+        Does removing a region actually change the output? Requires <code>--patching</code>.
+    </p>
+    <div class="metric-grid">
+        <div class="metric-card">
+            <div class="category">Causal</div>
+            <h4>Causal importance</h4>
+            <p>Mean KL divergence when a region is ablated. Critical regions should
+            score <code>&gt; 0.1</code>.</p>
+        </div>
+        <div class="metric-card">
+            <div class="category">Causal</div>
+            <h4>Attention-causal correlation</h4>
+            <p>Pearson <em>r</em> between attention and KL divergence per layer. <code>&gt; 0.3</code>
+            means attention predicts importance (the model attends to what matters).</p>
+        </div>
+    </div>
+
+    <h3>D. Head specialization</h3>
+    <p>
+        Has the model developed structured internal representations? Requires <code>--per-head</code>.
+    </p>
+    <div class="metric-grid">
+        <div class="metric-card">
+            <div class="category">Head</div>
+            <h4>Head variance</h4>
+            <p>Inter-head variance per region. Higher means some heads specialize on the region
+            while others ignore it &mdash; a sign of structured processing.</p>
+        </div>
+        <div class="metric-card">
+            <div class="category">Head</div>
+            <h4>Specialist head count</h4>
+            <p>Number of heads with Shannon entropy &lt; 1.0 that focus on a specific region.
+            Critical regions should have at least one.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>The scoring function</h2>
+    <p>
+        Each metric is mapped to a <strong>satisfaction score</strong> between 0 and 1 using
+        its target specification. The composite score is the weighted mean across all metrics.
+    </p>
+
+    <div class="score-example">
+        <div class="label">Example iteration output</div>
+<span class="dim">[iter 0]</span> score=<span class="bad">0.412</span> (2/7 satisfied) [3.2s]
+    <span class="dim">terminal_attention_policy:</span>   <span class="bad">0.018</span>  <span class="dim">(sat=0.36, target: above 0.05)</span>
+    <span class="dim">retention_ratio_policy:</span>       <span class="bad">0.12</span>   <span class="dim">(sat=0.40, target: above 0.3)</span>
+    <span class="dim">context_bleed_ratio:</span>          <span class="mid">1.80</span>   <span class="dim">(sat=0.60, target: below 3.0)</span>
+    <span class="dim">density_cv:</span>                   <span class="good">0.45</span>   <span class="dim">(sat=1.00, target: below 2.0)</span>
+    <span class="dim">peak_layer_frac_policy:</span>       <span class="good">0.09</span>   <span class="dim">(sat=1.00, target: below 0.35)</span>
+    -> <span class="mid">reorder_sections</span> on policy: Relocated 312 chars to end
+
+<span class="dim">[iter 1]</span> score=<span class="mid">0.647</span> (4/7 satisfied) [3.1s]
+    -> <span class="mid">insert_separator</span> on approved_responses: Added --- separator
+
+<span class="dim">[iter 2]</span> score=<span class="mid">0.723</span> (5/7 satisfied) [3.0s]
+    -> <span class="mid">duplicate_summary</span> on policy: Appended 89 char summary
+
+<span class="dim">[iter 3]</span> score=<span class="good">0.871</span> (7/7 satisfied) [3.2s]
+    <span class="green">Target reached</span>
+    </div>
+
+    <div class="callout insight">
+        <div class="callout-title">Satisfaction functions</div>
+        <p>
+            Each target has a direction (<code>above</code>, <code>below</code>, or <code>range</code>)
+            and boundary values. For an "above" target with minimum=0.0 and ideal=0.05, a value
+            of 0.025 gets satisfaction 0.5 (halfway). Values at or above ideal get 1.0. NaN values
+            get 0.0. The weighted mean of all satisfactions is the composite score.
+        </p>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Mutation strategy</h2>
+    <p>
+        The optimizer uses a 3-tier hybrid strategy. Each tier is tried in order, with
+        fallback to the next when the current tier plateaus.
+    </p>
+
+    <div class="phase-bar">
+        <div class="p-structural">Tier 1: Structural</div>
+        <div class="p-llm">Tier 2: LLM Rewrites</div>
+        <div class="p-converge">Converge</div>
+    </div>
+
+    <h3>Tier 1: Structural mutations (iterations 1&ndash;3)</h3>
+    <p>
+        Fast, deterministic operations that don't require an external LLM. Each mutation
+        is matched to a specific diagnostic signal:
+    </p>
+    <table>
+        <tr>
+            <th>Diagnostic Signal</th>
+            <th>Mutation</th>
+            <th>What It Does</th>
+        </tr>
+        <tr>
+            <td>Context bleed &gt; 3.0</td>
+            <td><code>insert_separator</code></td>
+            <td>Adds <code>---</code> between turns and current message</td>
+        </tr>
+        <tr>
+            <td>Rules retention &lt; 0.1</td>
+            <td><code>duplicate_summary</code></td>
+            <td>Echoes key rules near the end of the prompt</td>
+        </tr>
+        <tr>
+            <td>Rules terminal attn &lt; 0.02</td>
+            <td><code>reorder_sections</code></td>
+            <td>Moves rules closer to end (recency bias)</td>
+        </tr>
+        <tr>
+            <td>Density imbalance &gt; 2&times;</td>
+            <td><code>adjust_emphasis</code></td>
+            <td>Wraps headers in <code>**emphasis**</code> markers</td>
+        </tr>
+    </table>
+
+    <h3>Tier 2: LLM-guided rewrites (iterations 4+)</h3>
+    <p>
+        When structural mutations plateau, the optimizer sends the prompt and diagnostic report
+        to an external LLM (Claude, GPT-4, or any Anthropic-compatible API) which proposes
+        semantic rewrites of specific regions. The rewrite model is <em>separate</em> from
+        the model being analyzed.
+    </p>
+
+    <div class="callout">
+        <div class="callout-title">Why two models?</div>
+        <p>
+            The model being analyzed is a specific transformer whose internal processing you're
+            optimizing for. The rewrite model is a general-purpose LLM that understands prompt
+            engineering. These serve different roles: one is the subject, the other is the tool.
+        </p>
+    </div>
+
+    <h3>Convergence</h3>
+    <p>
+        The loop stops when any of these conditions is met:
+    </p>
+    <ul>
+        <li><strong>Target reached</strong> &mdash; composite score &ge; target (default 0.85)</li>
+        <li><strong>Plateau</strong> &mdash; score hasn't improved for <em>patience</em> iterations (default 3)</li>
+        <li><strong>Budget exhausted</strong> &mdash; total forward passes exceed the limit</li>
+        <li><strong>Max iterations</strong> &mdash; hard cap on loop count</li>
+    </ul>
+    <p>
+        Any mutation that decreases the score is reverted. The best prompt seen across
+        all iterations is always tracked and returned.
+    </p>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Example: Customer support prompt</h2>
+    <p>
+        This walkthrough uses a customer support agent prompt with two regions (policy rules
+        and approved response templates) and three test conversations.
+    </p>
+
+    <h3>Step 1: Starting prompt</h3>
+
+    <div class="code-block">
+        <div class="label">system_prompt_v0.txt</div>
+        <pre>You are an enterprise customer support agent. Follow company policy at all times.
+
+<span class="marker">## Policy</span>
+- Always greet the customer by name if available
+- Never share internal pricing, cost structures, or margin data
+- Escalate to a human agent if the customer mentions legal action
+- Offer a resolution within the first two responses
+- Do not make promises about timelines unless confirmed by the system
+- Use professional but warm tone throughout
+
+<span class="marker">## Approved Responses</span>
+Customer: I want a refund
+Agent: I understand your concern. Let me look into your order details...
+
+Customer: Your product broke after one week
+Agent: I'm sorry to hear that. Product issues within the warranty period...
+
+Customer: I've been waiting 3 weeks for my order
+Agent: I apologize for the delay. Let me check your shipping status...</pre>
+    </div>
+
+    <div class="code-block">
+        <div class="label">regions.json</div>
+        <pre>{
+  "system_prompt": {
+    "regions": [
+      {"name": "<span class="marker">policy</span>", "start_marker": "## Policy", "end_marker": "## Approved Responses"},
+      {"name": "<span class="marker">approved_responses</span>", "start_marker": "## Approved Responses", "end_marker": null}
+    ]
+  }
+}</pre>
+    </div>
+
+    <h3>Step 2: Define targets</h3>
+    <p>
+        We want the policy rules to be absorbed early but retained through to the output layers,
+        and we want balanced attention across regions:
+    </p>
+
+    <div class="code-block">
+        <div class="label">targets.json</div>
+        <pre>[
+  {"name": "<span class="marker">terminal_attention_policy</span>",  "direction": "above", "ideal": <span class="value">0.05</span>, "weight": <span class="value">1.5</span>},
+  {"name": "<span class="marker">retention_ratio_policy</span>",    "direction": "above", "ideal": <span class="value">0.3</span>,  "weight": <span class="value">1.2</span>},
+  {"name": "<span class="marker">peak_layer_frac_policy</span>",    "direction": "below", "ideal": <span class="value">0.15</span>, "maximum": <span class="value">0.35</span>},
+  {"name": "<span class="marker">context_bleed_ratio</span>",       "direction": "below", "ideal": <span class="value">1.0</span>,  "maximum": <span class="value">3.0</span>},
+  {"name": "<span class="marker">density_cv</span>",                "direction": "below", "ideal": <span class="value">0.5</span>,  "maximum": <span class="value">2.0</span>}
+]</pre>
+    </div>
+
+    <div class="callout">
+        <div class="callout-title">Reading the targets</div>
+        <p>
+            <code>terminal_attention_policy &gt; 0.05</code> means the policy region should get
+            at least 5% of the model's attention in the final layers. <code>retention_ratio_policy &gt; 0.3</code>
+            means at least 30% of peak attention should persist to the terminal layer. <code>peak_layer_frac_policy
+            &lt; 0.35</code> means the policy should peak in the first 35% of layers (early absorption).
+        </p>
+    </div>
+
+    <h3>Step 3: Run the optimizer</h3>
+
+    <div class="code-block">
+        <div class="label">Run optimization</div>
+        <pre><span class="comment"># Structural-only (fast, no API key needed)</span>
+<span class="cmd">promptastic-optimize</span> \
+    <span class="flag">--prompt</span> examples/optimize/system_prompt_v0.txt \
+    <span class="flag">--regions</span> examples/optimize/regions.json \
+    <span class="flag">--conversations</span> examples/optimize/conversations.json \
+    <span class="flag">--model-path</span> Qwen/Qwen2.5-3B-Instruct \
+    <span class="flag">--output</span> optimized/ \
+    <span class="flag">--targets</span> examples/optimize/targets.json \
+    <span class="flag">--strategy</span> structural \
+    <span class="flag">--max-iterations</span> 10
+
+<span class="comment"># With LLM rewrites (requires Anthropic API key)</span>
+<span class="cmd">promptastic-optimize</span> \
+    <span class="flag">--prompt</span> examples/optimize/system_prompt_v0.txt \
+    <span class="flag">--regions</span> examples/optimize/regions.json \
+    <span class="flag">--conversations</span> examples/optimize/conversations.json \
+    <span class="flag">--model-path</span> Qwen/Qwen2.5-3B-Instruct \
+    <span class="flag">--output</span> optimized/ \
+    <span class="flag">--targets</span> examples/optimize/targets.json \
+    <span class="flag">--strategy</span> hybrid \
+    <span class="flag">--rewrite-model</span> claude-sonnet-4-20250514 \
+    <span class="flag">--rewrite-api-key</span> $ANTHROPIC_API_KEY</pre>
+    </div>
+
+    <h3>Step 4: Interpret the output</h3>
+    <p>
+        The optimizer produces three files:
+    </p>
+
+    <table>
+        <tr><th>File</th><th>Contains</th></tr>
+        <tr>
+            <td><code>prompt.txt</code></td>
+            <td>The best-scoring prompt found across all iterations</td>
+        </tr>
+        <tr>
+            <td><code>optimization_log.json</code></td>
+            <td>Per-iteration metrics, scores, and mutations applied</td>
+        </tr>
+        <tr>
+            <td><code>report.md</code></td>
+            <td>Markdown summary with score progression and metric details</td>
+        </tr>
+    </table>
+
+    <p>
+        You can verify the optimized prompt by running the standard Promptastic analysis
+        and comparing visualizations:
+    </p>
+
+    <div class="code-block">
+        <div class="label">Verify with standard analysis</div>
+        <pre><span class="comment"># Prep the optimized prompt for analysis</span>
+<span class="cmd">python -m promptastic.prep.inputs</span> \
+    <span class="flag">--prompt</span> optimized/prompt.txt \
+    <span class="flag">--regions</span> examples/optimize/regions.json \
+    <span class="flag">--conversations</span> examples/optimize/conversations.json \
+    <span class="flag">--output</span> test_cases_optimized.json
+
+<span class="comment"># Run analysis</span>
+<span class="cmd">promptastic</span> \
+    <span class="flag">--input</span> test_cases_optimized.json \
+    <span class="flag">--output</span> results_optimized/ \
+    <span class="flag">--model-path</span> Qwen/Qwen2.5-3B-Instruct \
+    <span class="flag">--per-head</span> <span class="flag">--patching</span>
+
+<span class="comment"># Compare before and after</span>
+<span class="cmd">python -m promptastic.analysis.compare</span> \
+    <span class="flag">--base-dir</span> ./ \
+    <span class="flag">--variants</span> results_v0:Original results_optimized:Optimized \
+    <span class="flag">--metrics</span> all</pre>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Built-in profiles</h2>
+    <p>
+        Instead of writing custom target files, you can use a named profile that pre-configures
+        target thresholds for common optimization goals:
+    </p>
+    <table>
+        <tr>
+            <th>Profile</th>
+            <th>Goal</th>
+            <th>Key Targets</th>
+        </tr>
+        <tr>
+            <td><code>general</code></td>
+            <td>Balanced improvement across all metrics</td>
+            <td>Moderate thresholds for all categories</td>
+        </tr>
+        <tr>
+            <td><code>anti_bleed</code></td>
+            <td>Reduce conversation history interference</td>
+            <td>Tight context bleed ratio (&lt; 1.5), boosted weight on bleed metric</td>
+        </tr>
+        <tr>
+            <td><code>maximize_rules_adherence</code></td>
+            <td>Ensure rules/directives dominate output</td>
+            <td>High rules terminal attention (&gt; 0.08), high retention (&gt; 0.4)</td>
+        </tr>
+        <tr>
+            <td><code>balanced_attention</code></td>
+            <td>Even attention distribution across regions</td>
+            <td>Low density CV (&lt; 0.3), boosted density weight</td>
+        </tr>
+    </table>
+
+    <div class="code-block">
+        <div class="label">Using a profile</div>
+        <pre><span class="cmd">promptastic-optimize</span> \
+    <span class="flag">--prompt</span> system_prompt.txt \
+    <span class="flag">--regions</span> regions.json \
+    <span class="flag">--conversations</span> conversations.json \
+    <span class="flag">--model-path</span> /path/to/model \
+    <span class="flag">--profile</span> <span class="value">anti_bleed</span></pre>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Programmatic API</h2>
+    <p>
+        The optimizer can also be called directly from Python, which is useful for
+        integration into larger pipelines or for running sweeps across multiple configurations.
+    </p>
+
+    <div class="code-block">
+        <div class="label">Python API</div>
+        <pre><span class="keyword">from</span> promptastic.optimize <span class="keyword">import</span> optimize_prompt, OptimizationConfig
+
+<span class="comment"># Model is already loaded (stays in GPU memory across iterations)</span>
+result = optimize_prompt(
+    model=model,
+    tokenizer=tokenizer,
+    adapter=adapter,
+    system_prompt=prompt_text,
+    region_config=region_cfg,
+    conversations=conversations,
+    config=OptimizationConfig(
+        max_iterations=<span class="value">10</span>,
+        target_score=<span class="value">0.85</span>,
+        profile=<span class="value">"general"</span>,
+        enable_patching=<span class="value">True</span>,
+    ),
+)
+
+<span class="keyword">print</span>(f<span class="value">"Best score: {result.best_score.total:.3f}"</span>)
+<span class="keyword">print</span>(f<span class="value">"Converged: {result.converged} ({result.convergence_reason})"</span>)
+<span class="keyword">print</span>(f<span class="value">"Iterations: {len(result.history)}"</span>)
+<span class="keyword">print</span>(result.best_prompt)</pre>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Key takeaways</h2>
+
+    <div class="takeaways">
+        <div class="takeaway">
+            <div class="num">1</div>
+            <h4>Metrics from the forward pass</h4>
+            <p>All optimization targets come from data Promptastic already captures &mdash;
+            attention weights, cooking curves, activation patching, head specialization.
+            No additional probing infrastructure is needed.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">2</div>
+            <h4>Structure before semantics</h4>
+            <p>Structural mutations (reordering, separators, emphasis) are applied first
+            because they're free and address the most common issues. LLM rewrites are
+            reserved for semantic problems that structure alone can't fix.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">3</div>
+            <h4>Model stays loaded</h4>
+            <p>The optimizer calls <code>analyze_case()</code> directly with the model in GPU
+            memory. No subprocess spawning, no re-loading. Each iteration is one forward
+            pass (or more with patching).</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">4</div>
+            <h4>Budget-aware</h4>
+            <p>You control the cost: <code>--max-iterations</code> caps the loop count,
+            attention-only mode uses 1 forward pass per case per iteration,
+            patching multiplies by (regions &times; layers). Set your budget, get the best
+            prompt within it.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">5</div>
+            <h4>Define your own targets</h4>
+            <p>Every metric has a configurable target (direction, threshold, weight). Use a
+            built-in profile for quick starts, or write a custom targets JSON for
+            domain-specific requirements.</p>
+        </div>
+        <div class="takeaway">
+            <div class="num">6</div>
+            <h4>Verify with standard tools</h4>
+            <p>After optimization, run the standard Promptastic pipeline on the optimized
+            prompt. Compare cooking curves, patching grids, and head grids side-by-side
+            with the original to confirm the improvement is real.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+    <h2>Full CLI reference</h2>
+
+    <div class="code-block">
+        <pre><span class="cmd">promptastic-optimize</span> \
+    <span class="flag">--prompt</span> PATH            <span class="comment"># System prompt text file (required)</span>
+    <span class="flag">--regions</span> PATH           <span class="comment"># Region configuration JSON (required)</span>
+    <span class="flag">--conversations</span> PATH     <span class="comment"># Test conversations JSON (required)</span>
+    <span class="flag">--model-path</span> PATH        <span class="comment"># HuggingFace model path (required)</span>
+    <span class="flag">--output</span> DIR             <span class="comment"># Output directory (default: optimized)</span>
+    <span class="flag">--max-iterations</span> N       <span class="comment"># Maximum iterations (default: 10)</span>
+    <span class="flag">--target-score</span> F         <span class="comment"># Stop when score reaches this (default: 0.85)</span>
+    <span class="flag">--patience</span> N             <span class="comment"># Iterations without improvement to stop (default: 3)</span>
+    <span class="flag">--strategy</span> MODE          <span class="comment"># structural | llm | hybrid (default: hybrid)</span>
+    <span class="flag">--profile</span> NAME           <span class="comment"># general | anti_bleed | maximize_rules_adherence | balanced_attention</span>
+    <span class="flag">--targets</span> PATH           <span class="comment"># Custom targets JSON (overrides profile)</span>
+    <span class="flag">--patching</span>               <span class="comment"># Enable causal metrics (slower)</span>
+    <span class="flag">--per-head</span>               <span class="comment"># Enable head specialization metrics</span>
+    <span class="flag">--gradients</span>              <span class="comment"># Enable gradient attribution metrics</span>
+    <span class="flag">--rewrite-model</span> MODEL    <span class="comment"># Model for LLM rewrites (e.g. claude-sonnet-4-20250514)</span>
+    <span class="flag">--rewrite-api-key</span> KEY    <span class="comment"># API key for rewrite model</span>
+    <span class="flag">--multi-gpu</span>              <span class="comment"># Enable multi-GPU with accelerate</span></pre>
+    </div>
+</section>
+
+</div>
+
+<footer>
+    <div class="container">
+        <p>
+            <a href="index.html">Promptastic</a>
+            &nbsp;&middot;&nbsp;
+            <a href="guide.html">Tuning Guide</a>
+            &nbsp;&middot;&nbsp;
+            <a href="https://github.com/harsh-nod/promptastic">GitHub</a>
+            &nbsp;&middot;&nbsp;
+            MIT License
+        </p>
+    </div>
+</footer>
+
+</body>
+</html>

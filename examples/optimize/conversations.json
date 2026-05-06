@@ -1,0 +1,14 @@
+[
+  {
+    "id": "refund_request",
+    "user_message": "Hi, I purchased a laptop last week and I'm not happy with the performance. I'd like a full refund please."
+  },
+  {
+    "id": "shipping_delay",
+    "user_message": "My order #4521 was supposed to arrive 5 days ago. This is unacceptable, where is it?"
+  },
+  {
+    "id": "warranty_claim",
+    "user_message": "The headphones I bought from you stopped working after 3 days. This is a defective product."
+  }
+]

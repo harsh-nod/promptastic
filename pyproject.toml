@@ -18,6 +18,7 @@ dev = ["pytest", "mypy"]
 
 [project.scripts]
 promptastic = "promptastic.engine.runner:main"
+promptastic-optimize = "promptastic.optimize.loop:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/promptastic"]

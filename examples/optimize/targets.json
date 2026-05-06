@@ -1,0 +1,42 @@
+[
+  {
+    "name": "terminal_attention_policy",
+    "direction": "above",
+    "minimum": 0.0,
+    "ideal": 0.05,
+    "weight": 1.5,
+    "category": "attention"
+  },
+  {
+    "name": "retention_ratio_policy",
+    "direction": "above",
+    "minimum": 0.0,
+    "ideal": 0.3,
+    "weight": 1.2,
+    "category": "dynamics"
+  },
+  {
+    "name": "peak_layer_frac_policy",
+    "direction": "below",
+    "ideal": 0.15,
+    "maximum": 0.35,
+    "weight": 1.0,
+    "category": "dynamics"
+  },
+  {
+    "name": "context_bleed_ratio",
+    "direction": "below",
+    "ideal": 1.0,
+    "maximum": 3.0,
+    "weight": 1.2,
+    "category": "attention"
+  },
+  {
+    "name": "density_cv",
+    "direction": "below",
+    "ideal": 0.5,
+    "maximum": 2.0,
+    "weight": 1.0,
+    "category": "attention"
+  }
+]

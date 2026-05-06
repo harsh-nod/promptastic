@@ -1,0 +1,8 @@
+{
+  "system_prompt": {
+    "regions": [
+      {"name": "policy", "start_marker": "## Policy", "end_marker": "## Approved Responses"},
+      {"name": "approved_responses", "start_marker": "## Approved Responses", "end_marker": null}
+    ]
+  }
+}
