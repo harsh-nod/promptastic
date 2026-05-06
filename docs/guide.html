@@ -441,28 +441,48 @@ your thought process.</pre>
     </div>
 
     <h3>Activation patching</h3>
+    <p>
+        Activation patching answers the question: <strong>"if I zero out this region's
+        activations at this layer, how much does the model's output change?"</strong>
+        The metric is KL divergence &mdash; higher values (warmer colors) mean the region
+        is causally important at that layer. Zero means removing it changes nothing.
+    </p>
     <div class="viz">
         <img src="examples/viz_unstructured/patching.png" alt="Unstructured prompt patching grid" loading="lazy">
         <div class="caption">
             <div class="title">Unstructured prompt &mdash; activation patching grid</div>
             <div class="desc">
-                Region x layer causal importance. With only 4 coarse regions,
-                you can see the system_prompt matters (warm cells) but you cannot tell
-                <em>which instructions</em> within it are driving the output. The
-                causal signal is aggregated into a single row for the entire system prompt.
+                4 rows (regions) x 33 layers. The user_message row shows moderate KL values
+                (orange cells, 9&ndash;14) across many layers &mdash; removing the user's question
+                clearly changes the output. The chat_template row shows the highest values
+                (15&ndash;19, red cells) because the template tokens define the conversation format.
+                The system_prompt row is mostly blue (low KL) &mdash; but this doesn't mean the
+                system prompt is unimportant. It means the <em>entire blob</em> has diffuse
+                importance that doesn't spike at any single layer. We can't tell whether the
+                rules or the examples are driving this signal because they're merged into one region.
             </div>
         </div>
     </div>
 
     <h3>Per-head attention grid</h3>
+    <p>
+        The head grid shows how much each of the 16 attention heads attends to each region.
+        On the viridis colormap, yellow = high attention, dark purple = low. Each row is one
+        head, each column is one region, shown for the final 4 layers (L32&ndash;L35).
+    </p>
     <div class="viz">
         <img src="examples/viz_unstructured/head_grid.png" alt="Unstructured prompt head grid" loading="lazy">
         <div class="caption">
             <div class="title">Unstructured prompt &mdash; per-head attention grid</div>
             <div class="desc">
-                16 heads x 4 regions. Some heads show differentiation between system_prompt and
-                user_message, but with the system prompt as one blob, you cannot see whether
-                heads are specializing on rules vs. examples. The diagnostic resolution is too low.
+                16 heads x 4 regions at layers 32&ndash;35. The chat_template column is bright
+                yellow across nearly all heads (the model attends heavily to format tokens). The
+                system_prompt column shows moderate teal/blue &mdash; some heads attend to it, but
+                with the entire system prompt in one column, you can't distinguish whether a head
+                is looking at the rules or the examples. The user_message column shows interesting
+                variation: at L34&ndash;35, heads H7&ndash;H9 light up green/yellow, indicating
+                these heads specialize on the user's question in the final layers. But the system
+                prompt internals remain invisible.
             </div>
         </div>
     </div>
@@ -470,10 +490,11 @@ your thought process.</pre>
     <div class="callout insight">
         <div class="callout-title">Diagnosis</div>
         <p>
-            The model is processing this prompt, but we're blind to the internal dynamics.
-            We know the system prompt matters causally (patching shows it), but we cannot
-            decompose <em>how</em> it matters. Are the rules important? The examples? Both?
-            At which layers? We need structure.
+            The model is processing this prompt, and patching confirms the system prompt
+            contributes (its row isn't zero). But we can only see 4 coarse regions.
+            We can't answer: are the <em>rules</em> or the <em>examples</em> driving the output?
+            Do any heads specialize on the rules? At which layers do examples get absorbed?
+            To answer these questions, we need the system prompt decomposed into sub-regions.
         </p>
     </div>
 </section>
@@ -608,12 +629,29 @@ def reverse_linked_list(head):
         <div class="caption">
             <div class="title">Structured prompt &mdash; activation patching grid</div>
             <div class="desc">
-                Now we have 6 separate rows showing causal importance per region per layer.
-                You can see exactly which regions drive the output at which layers. The rules and
-                examples regions show distinct patterns of causal importance, confirming they are
-                processed differently.
+                Now 6 rows instead of 4. The user_message and chat_template rows show the
+                same high KL values as before (orange/red cells, 11&ndash;19) &mdash; these
+                regions are causally critical regardless of prompt structure. The new insight
+                is in the bottom two rows: <strong>rules</strong> and <strong>examples</strong>
+                are both mostly blue (near-zero KL divergence). This means that individually,
+                neither sub-region is sufficient to change the output when ablated &mdash; their
+                causal effect is distributed. The system_prompt container row absorbs their
+                combined impact. This is a real finding: the model doesn't depend on one specific
+                section, it uses the system prompt holistically. Without the decomposition, you'd
+                never know this.
             </div>
         </div>
+    </div>
+
+    <div class="callout">
+        <div class="callout-title">Honest reading</div>
+        <p>
+            The patching grid doesn't always show dramatic differences between structured and
+            unstructured prompts. What it does is give you <em>more rows to reason about</em>.
+            Low KL for a sub-region is itself informative &mdash; it means that section's effect
+            is redundant or distributed, not that it's unimportant. High KL would tell you the
+            model critically depends on that specific section. Both are useful signals.
+        </p>
     </div>
 
     <h3>Per-head attention grid</h3>
@@ -622,10 +660,15 @@ def reverse_linked_list(head):
         <div class="caption">
             <div class="title">Structured prompt &mdash; per-head attention grid</div>
             <div class="desc">
-                16 heads x 6 regions. Head specialization is now visible: some heads attend
-                strongly to the rules region while ignoring examples, and vice versa. This
-                specialization indicates the model is using different processing pathways for
-                different prompt sections &mdash; a hallmark of effective prompt structure.
+                16 heads x 6 regions at layers 32&ndash;35. The overall pattern is similar to the
+                unstructured version &mdash; chat_template dominates (yellow), user_message shows
+                head specialization in later layers. But now we can see two additional columns:
+                <strong>rules</strong> shows moderate teal for most heads, while
+                <strong>examples</strong> is darker (less attention). At L33, the rules column is
+                slightly brighter than examples for heads H0&ndash;H5, suggesting these heads
+                attend more to the rules section. The difference is subtle on this model &mdash;
+                with a larger model (32B+), head specialization patterns tend to be more
+                pronounced.
             </div>
         </div>
     </div>
@@ -666,9 +709,10 @@ def reverse_linked_list(head):
         </div>
     </div>
     <p class="dim">
-        Left: 4 coarse regions, causal importance locked in the system_prompt blob.
-        Right: 6 regions with separate rows for rules and examples, revealing distinct
-        causal patterns at different layers.
+        The warm cells (user_message, chat_template) look similar in both &mdash; those
+        regions are critical regardless of structure. The difference is diagnostic resolution:
+        the right grid has two extra rows (rules, examples) that tell you the system prompt's
+        causal effect is distributed rather than concentrated in one sub-section.
     </p>
 
     <h3>Per-head attention</h3>
@@ -683,9 +727,10 @@ def reverse_linked_list(head):
         </div>
     </div>
     <p class="dim">
-        Left: 4 columns, limited visibility into head specialization within the system prompt.
-        Right: 6 columns, clear specialization patterns with heads dedicating attention to
-        specific prompt sections.
+        The overall head patterns are similar &mdash; this is the same model processing similar
+        content. The structured grid gives you 6 columns instead of 4, decomposing the
+        system_prompt column into examples and rules. On this 3B model the per-head differences
+        between rules and examples are subtle. Larger models show more dramatic specialization.
     </p>
 </section>
 
@@ -718,16 +763,18 @@ def reverse_linked_list(head):
         <div class="takeaway">
             <div class="num">4</div>
             <h4>Verify with patching</h4>
-            <p>Cooking curves show correlation; patching shows causation. A region with
-            high attention but low KL divergence when ablated is observed but not
-            causally important.</p>
+            <p>Cooking curves show where attention goes; patching shows what causally
+            matters. Low KL for a sub-region doesn't mean it's useless &mdash; it means
+            its effect is distributed. High KL means the model critically depends on
+            that specific section. Both findings are actionable.</p>
         </div>
         <div class="takeaway">
             <div class="num">5</div>
-            <h4>Look for head specialization</h4>
-            <p>Specialist heads (one head per region) indicate the model has learned
-            to allocate dedicated processing for each prompt section. Uniform attention
-            across heads suggests the model can't differentiate sections.</p>
+            <h4>Read the data honestly</h4>
+            <p>Not every visualization shows a dramatic before/after difference. The
+            value of structure is diagnostic resolution: more rows in the patching grid,
+            more columns in the head grid, actual curves to plot. Even subtle differences
+            are informative. The absence of signal is itself a finding.</p>
         </div>
         <div class="takeaway">
             <div class="num">6</div>
