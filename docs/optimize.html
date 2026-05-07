@@ -567,6 +567,14 @@
     <span class="green">Target reached</span>
     </div>
 
+    <p class="dim">
+        Each iteration now prints a <strong>fix plan</strong>—the top diagnostic issues mapped to
+        their suggested actions—and a compact <strong>prompt diff</strong> that lists the sections
+        whose content actually changed. Both artefacts are also saved in
+        <code>history.json</code> so you can review the trajectory later or feed it back into your
+        own tooling.
+    </p>
+
     <div class="callout insight">
         <div class="callout-title">Satisfaction functions</div>
         <p>
@@ -596,6 +604,12 @@
     <p>
         Fast, deterministic operations that don't require an external LLM. Each mutation
         is matched to a specific diagnostic signal:
+    </p>
+    <p class="dim">
+        Under the hood the optimizer works against a <code>StructuredPrompt</code> model: the system
+        prompt is parsed into named sections (using your region config) so mutations can move,
+        rewrite, or summarise entire sections without ever breaking the markers the renderer relies
+        on. That structure is also what powers the prompt diffs shown in the console.
     </p>
     <table>
         <tr>
@@ -683,6 +697,27 @@
         <li><strong>Diagnostic issues</strong> &mdash; current failing metrics and their severity</li>
         <li><strong>Response samples</strong> (optional) &mdash; actual model outputs per prompt version</li>
     </ul>
+
+    <h3>Guardrails before committing a meta rewrite</h3>
+    <p>
+        Every N+1 candidate now goes through two checks <em>before</em> it replaces the current prompt:
+    </p>
+    <ul>
+        <li><strong>Structured verification</strong> &mdash; ensures all region markers survive, the
+            rewrite actually edits the targeted sections, and the overall prompt length stays within
+            a configurable tolerance (default &plusmn;40%). If verification fails you'll see a
+            <code>Verification rejected candidate</code> line in the CLI and the previous prompt is kept.</li>
+        <li><strong>Candidate policy</strong> &mdash; a lightweight heuristic policy (stubbed for a
+            future learned scorer) that double-checks the change set against the diagnostic report.
+            When it declines a rewrite you'll get a <code>Rejected by policy</code> message along with the
+            policy's rationale.</li>
+    </ul>
+    <p class="dim">
+        Advanced users can tune these guardrails via <code>OptimizationConfig</code>:
+        <code>verification_enabled</code>, <code>verification_length_tolerance</code>, and
+        <code>use_candidate_policy</code>. Even when you leave them at their defaults you still get
+        policy confidence annotated in the per-iteration log (see the <code>policy=0.78</code> suffix in the CLI output).
+    </p>
 
     <h3>When to use it</h3>
     <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin: 16px 0;">
