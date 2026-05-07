@@ -660,124 +660,139 @@
 
 <!-- ================================================================ -->
 <section>
-    <h2>Multi-turn split</h2>
+    <h2>N+1 prompt generation (meta strategy)</h2>
     <p>
-        Sometimes no amount of reordering or emphasis fixes the root problem: the prompt has
-        too many regions competing for attention in a single system message. When this happens,
-        the optimizer can <strong>automatically split the prompt into multiple conversation
-        turns</strong>.
+        The <strong>meta strategy</strong> takes a fundamentally different approach to prompt
+        optimization.  Instead of mapping diagnostic metrics to predetermined mutations, it
+        looks at the <em>trajectory</em> of all previous prompt iterations &mdash; what was
+        changed, how scores moved, and optionally what the model actually generated &mdash;
+        to predict the optimal next prompt.
     </p>
 
-    <h3>When does it trigger?</h3>
+    <h3>How it works</h3>
     <p>
-        The split is suggested as a compound diagnostic signal, not a single metric:
+        Given N previous prompt versions and their measured outcomes, the meta-rewriter
+        sends the full optimization history to an external LLM (Claude) and asks it to
+        generate version N+1.  The LLM sees:
     </p>
     <ul>
-        <li><strong>3+ regions</strong> have retention ratio satisfaction &lt; 0.5 (widespread retention failure)</li>
-        <li><strong>Severe context bleed + imbalance</strong> &mdash; bleed satisfaction &lt; 0.3 and density CV satisfaction &lt; 0.5</li>
-        <li><strong>Example regions</strong> (approved_responses, few_shot, demonstrations) have retention satisfaction &lt; 0.4</li>
+        <li><strong>Metric targets</strong> &mdash; what the optimizer is trying to achieve</li>
+        <li><strong>Score trajectory</strong> &mdash; how the composite score changed per iteration</li>
+        <li><strong>Metric trends</strong> &mdash; which metrics are improving, stuck, or regressing</li>
+        <li><strong>Mutation history</strong> &mdash; what changes were tried and their effect</li>
+        <li><strong>Diagnostic issues</strong> &mdash; current failing metrics and their severity</li>
+        <li><strong>Response samples</strong> (optional) &mdash; actual model outputs per prompt version</li>
     </ul>
 
-    <h3>What does it do?</h3>
-    <p>
-        Each region is classified and handled differently:
-    </p>
-    <table>
-        <tr><th>Classification</th><th>Regions</th><th>Action</th></tr>
-        <tr>
-            <td><strong>Keep</strong></td>
-            <td><code>rules</code>, <code>policy</code>, <code>directive</code>, <code>output_format</code></td>
-            <td>Stays in the system prompt</td>
-        </tr>
-        <tr>
-            <td><strong>Example</strong></td>
-            <td><code>examples</code>, <code>few_shot</code>, <code>approved_responses</code></td>
-            <td>Parsed into user/assistant turn pairs</td>
-        </tr>
-        <tr>
-            <td><strong>Context</strong></td>
-            <td><code>context</code>, <code>background</code>, <code>history</code></td>
-            <td>Becomes a context-setting user turn</td>
-        </tr>
-    </table>
-
-    <p>
-        For example regions, the optimizer parses <code>Customer:/Agent:</code>,
-        <code>User:/Assistant:</code>, or <code>Human:/AI:</code> patterns and converts each
-        pair into a real conversation turn. If no pattern is found, the entire region is
-        wrapped as a single user turn.
-    </p>
-
-    <h3>Example: before and after split</h3>
-    <p>
-        Using our customer support prompt, the split extracts the <code>approved_responses</code>
-        region (3 Customer/Agent pairs) into 6 prefix turns:
-    </p>
-
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0;">
-        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
-            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 12px; font-weight: 600;">Before: 1 system message</div>
-            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.6;">
-                <span style="color: var(--accent);">[system]</span> You are an enterprise customer support agent...<br>
-                &nbsp;&nbsp;## Policy<br>
-                &nbsp;&nbsp;- Always greet the customer...<br>
-                &nbsp;&nbsp;## Approved Responses<br>
-                &nbsp;&nbsp;Customer: I want a refund<br>
-                &nbsp;&nbsp;Agent: I understand your concern...<br>
-                &nbsp;&nbsp;Customer: Your product broke...<br>
-                &nbsp;&nbsp;Agent: I'm sorry to hear that...<br>
-                &nbsp;&nbsp;Customer: I've been waiting...<br>
-                &nbsp;&nbsp;Agent: I apologize for the delay...<br>
-                <span style="color: var(--accent);">[user]</span> My order #4521 was supposed to arrive...
-            </div>
-        </div>
-        <div style="background: var(--surface); border: 1px solid var(--green); border-radius: 8px; padding: 20px;">
-            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 12px; font-weight: 600;">After: system + 6 prefix turns</div>
-            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.6;">
-                <span style="color: var(--accent);">[system]</span> You are an enterprise customer support agent...<br>
-                &nbsp;&nbsp;## Policy<br>
-                &nbsp;&nbsp;- Always greet the customer...<br>
-                <span style="color: var(--green);">[user]</span> I want a refund<br>
-                <span style="color: var(--green);">[assistant]</span> I understand your concern...<br>
-                <span style="color: var(--green);">[user]</span> Your product broke after one week<br>
-                <span style="color: var(--green);">[assistant]</span> I'm sorry to hear that...<br>
-                <span style="color: var(--green);">[user]</span> I've been waiting 3 weeks...<br>
-                <span style="color: var(--green);">[assistant]</span> I apologize for the delay...<br>
-                <span style="color: var(--accent);">[user]</span> My order #4521 was supposed to arrive...
-            </div>
-        </div>
-    </div>
-
-    <div class="callout insight">
-        <div class="callout-title">Why does this help?</div>
-        <p>
-            Transformers process each turn through the full attention mechanism independently before
-            attending to the next. When examples are in the system prompt, they're a block of text
-            competing with rules for attention. As separate turns, each example gets its own
-            turn-boundary attention reset &mdash; the model processes each example/response pair
-            as a complete interaction, building stronger few-shot priming. Meanwhile, the system
-            prompt is shorter and denser, so rules get more attention per token.
+    <h3>When to use it</h3>
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin: 16px 0;">
+        <p>Use <code>--strategy meta</code> or <code>--strategy hybrid_meta</code> when:</p>
+        <ul>
+            <li>Structural mutations have plateaued and score is stuck</li>
+            <li>Multiple metrics are failing simultaneously (holistic rewrite needed)</li>
+            <li>The prompt needs cross-region restructuring that single-region rewrites can't achieve</li>
+        </ul>
+        <p style="margin-top: 12px;">
+            <code>hybrid_meta</code> (recommended) runs cheap structural mutations first
+            (<code>--structural-iterations</code> controls how many), then switches to the
+            trajectory-aware meta-rewriter for the remaining iterations.
         </p>
     </div>
 
-    <p>
-        When a split is applied, the optimizer saves two files:
-    </p>
-    <ul>
-        <li><code>prompt.txt</code> &mdash; the reduced system prompt (rules only)</li>
-        <li><code>prefix_turns.json</code> &mdash; the extracted turn pairs</li>
-    </ul>
+    <h3>CLI usage</h3>
+    <pre style="background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto;"><code>python -m promptastic.optimize.loop \
+    --prompt prompt.txt \
+    --regions regions.json \
+    --conversations conversations.json \
+    --model-path meta-llama/Llama-3-8B \
+    --strategy hybrid_meta \
+    --rewrite-model claude-sonnet-4-20250514 \
+    --meta-window-size 5 \
+    --meta-include-responses \
+    --meta-response-max-tokens 64</code></pre>
+
+    <table style="width: 100%; margin-top: 16px; border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 2px solid var(--border);">
+                <th style="text-align: left; padding: 8px;">Flag</th>
+                <th style="text-align: left; padding: 8px;">Default</th>
+                <th style="text-align: left; padding: 8px;">Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><code>--strategy meta</code></td>
+                <td style="padding: 8px;">&mdash;</td>
+                <td style="padding: 8px;">Use meta-rewriter for all non-structural iterations</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><code>--strategy hybrid_meta</code></td>
+                <td style="padding: 8px;">&mdash;</td>
+                <td style="padding: 8px;">Structural first, then meta (recommended)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><code>--meta-window-size</code></td>
+                <td style="padding: 8px;">5</td>
+                <td style="padding: 8px;">Max trajectory entries sent to the LLM (always includes iter 0 + best)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><code>--meta-include-responses</code></td>
+                <td style="padding: 8px;">off</td>
+                <td style="padding: 8px;">Capture actual model responses each iteration (adds GPU cost)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><code>--meta-response-max-tokens</code></td>
+                <td style="padding: 8px;">64</td>
+                <td style="padding: 8px;">Max tokens per response capture</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>How it differs from LLM rewrite</h3>
+    <table style="width: 100%; margin-top: 8px; border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 2px solid var(--border);">
+                <th style="text-align: left; padding: 8px;"></th>
+                <th style="text-align: left; padding: 8px;">LLM Rewrite (<code>--strategy llm</code>)</th>
+                <th style="text-align: left; padding: 8px;">Meta (<code>--strategy meta</code>)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><strong>Scope</strong></td>
+                <td style="padding: 8px;">Rewrites one region at a time</td>
+                <td style="padding: 8px;">Rewrites the full prompt holistically</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><strong>Context</strong></td>
+                <td style="padding: 8px;">Current diagnostics only</td>
+                <td style="padding: 8px;">Full trajectory (N iterations + trends)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><strong>Learning</strong></td>
+                <td style="padding: 8px;">No memory of past attempts</td>
+                <td style="padding: 8px;">Learns from what worked and what didn't</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px;"><strong>API cost</strong></td>
+                <td style="padding: 8px;">Smaller context per call</td>
+                <td style="padding: 8px;">Larger context (trajectory data)</td>
+            </tr>
+        </tbody>
+    </table>
 </section>
 
 <!-- ================================================================ -->
 <section>
-    <h2>Example: Customer support prompt</h2>
+    <h2>Example: N+1 meta optimization</h2>
     <p>
-        This walkthrough uses a customer support agent prompt with two regions (policy rules
-        and approved response templates) and three test conversations.
+        This walkthrough shows how the <strong>meta strategy</strong> uses the full optimization
+        trajectory to generate an optimal next prompt.  We start with the same customer support
+        prompt and let the optimizer run 5 iterations &mdash; 3 structural, then 2 trajectory-aware
+        meta-rewrites.
     </p>
 
-    <h3>Step 1: Starting prompt</h3>
+    <h3>Step 1: Starting prompt and config</h3>
 
     <div class="code-block">
         <div class="label">system_prompt_v0.txt</div>
@@ -802,290 +817,271 @@ Customer: I've been waiting 3 weeks for my order
 Agent: I apologize for the delay. Let me check your shipping status...</pre>
     </div>
 
-    <div class="code-block">
-        <div class="label">regions.json</div>
-        <pre>{
-  "system_prompt": {
-    "regions": [
-      {"name": "<span class="marker">policy</span>", "start_marker": "## Policy", "end_marker": "## Approved Responses"},
-      {"name": "<span class="marker">approved_responses</span>", "start_marker": "## Approved Responses", "end_marker": null}
-    ]
-  }
-}</pre>
-    </div>
-
-    <h3>Step 2: Define targets</h3>
-    <p>
-        We want the policy rules to be absorbed early but retained through to the output layers,
-        and we want balanced attention across regions:
-    </p>
+    <h3>Step 2: Run with hybrid_meta strategy</h3>
 
     <div class="code-block">
-        <div class="label">targets.json</div>
-        <pre>[
-  {"name": "<span class="marker">terminal_attention_policy</span>",  "direction": "above", "ideal": <span class="value">0.05</span>, "weight": <span class="value">1.5</span>},
-  {"name": "<span class="marker">retention_ratio_policy</span>",    "direction": "above", "ideal": <span class="value">0.3</span>,  "weight": <span class="value">1.2</span>},
-  {"name": "<span class="marker">peak_layer_frac_policy</span>",    "direction": "below", "ideal": <span class="value">0.15</span>, "maximum": <span class="value">0.35</span>},
-  {"name": "<span class="marker">context_bleed_ratio</span>",       "direction": "below", "ideal": <span class="value">1.0</span>,  "maximum": <span class="value">3.0</span>},
-  {"name": "<span class="marker">density_cv</span>",                "direction": "below", "ideal": <span class="value">0.5</span>,  "maximum": <span class="value">2.0</span>}
-]</pre>
+        <div class="label">Run N+1 optimization</div>
+        <pre><span class="cmd">promptastic-optimize</span> \
+    <span class="flag">--prompt</span> examples/optimize/system_prompt_v0.txt \
+    <span class="flag">--regions</span> examples/optimize/regions.json \
+    <span class="flag">--conversations</span> examples/optimize/conversations.json \
+    <span class="flag">--model-path</span> Qwen/Qwen2.5-3B-Instruct \
+    <span class="flag">--output</span> optimized/ \
+    <span class="flag">--targets</span> examples/optimize/targets.json \
+    <span class="flag">--strategy</span> <span class="value">hybrid_meta</span> \
+    <span class="flag">--rewrite-model</span> claude-sonnet-4-20250514 \
+    <span class="flag">--structural-iterations</span> <span class="value">3</span> \
+    <span class="flag">--meta-window-size</span> <span class="value">5</span> \
+    <span class="flag">--meta-include-responses</span> \
+    <span class="flag">--max-iterations</span> <span class="value">6</span></pre>
     </div>
 
     <div class="callout">
-        <div class="callout-title">Reading the targets</div>
+        <div class="callout-title">What happens at each phase</div>
         <p>
-            <code>terminal_attention_policy &gt; 0.05</code> means the policy region should get
-            at least 5% of the model's attention in the final layers. <code>retention_ratio_policy &gt; 0.3</code>
-            means at least 30% of peak attention should persist to the terminal layer. <code>peak_layer_frac_policy
-            &lt; 0.35</code> means the policy should peak in the first 35% of layers (early absorption).
+            <strong>Iterations 0&ndash;2 (structural):</strong> The optimizer applies predetermined
+            mutations based on diagnostic signals &mdash; reorder sections, insert separators,
+            adjust emphasis. These are fast and free (no API calls).<br><br>
+            <strong>Iterations 3+ (meta):</strong> The optimizer sends the full trajectory &mdash; all
+            previous prompts, their metric scores, what mutations were tried, and optionally actual
+            model responses &mdash; to Claude and asks: <em>"Given everything that was tried, what
+            should the next prompt look like?"</em>
         </p>
     </div>
 
-    <h3>Step 3: Run the optimizer</h3>
-
-    <div class="code-block">
-        <div class="label">Run optimization</div>
-        <pre><span class="comment"># Structural-only (fast, no API key needed)</span>
-<span class="cmd">promptastic-optimize</span> \
-    <span class="flag">--prompt</span> examples/optimize/system_prompt_v0.txt \
-    <span class="flag">--regions</span> examples/optimize/regions.json \
-    <span class="flag">--conversations</span> examples/optimize/conversations.json \
-    <span class="flag">--model-path</span> Qwen/Qwen2.5-3B-Instruct \
-    <span class="flag">--output</span> optimized/ \
-    <span class="flag">--targets</span> examples/optimize/targets.json \
-    <span class="flag">--strategy</span> structural \
-    <span class="flag">--max-iterations</span> 10
-
-<span class="comment"># With LLM rewrites (requires Anthropic API key)</span>
-<span class="cmd">promptastic-optimize</span> \
-    <span class="flag">--prompt</span> examples/optimize/system_prompt_v0.txt \
-    <span class="flag">--regions</span> examples/optimize/regions.json \
-    <span class="flag">--conversations</span> examples/optimize/conversations.json \
-    <span class="flag">--model-path</span> Qwen/Qwen2.5-3B-Instruct \
-    <span class="flag">--output</span> optimized/ \
-    <span class="flag">--targets</span> examples/optimize/targets.json \
-    <span class="flag">--strategy</span> hybrid \
-    <span class="flag">--rewrite-model</span> claude-sonnet-4-20250514 \
-    <span class="flag">--rewrite-api-key</span> $ANTHROPIC_API_KEY</pre>
-    </div>
-
-    <h3>Step 4: The optimized prompt</h3>
+    <h3>Step 3: The trajectory</h3>
     <p>
-        After 3 iterations of structural mutations, the optimizer produces this prompt
-        (saved to <code>optimized/prompt.txt</code>):
-    </p>
-
-    <div class="code-block">
-        <div class="label">optimized/prompt.txt (after 3 iterations)</div>
-        <pre>You are an enterprise customer support agent. Follow company policy at all times.
-
-<span class="comment">&lt;!-- Approved Responses moved above Policy (iter 0: reorder_sections) --&gt;</span>
-<span class="marker">## Approved Responses</span>
-Customer: I want a refund
-Agent: I understand your concern. Let me look into your order details...
-
-Customer: Your product broke after one week
-Agent: I'm sorry to hear that. Product issues within the warranty period...
-
-Customer: I've been waiting 3 weeks for my order
-Agent: I apologize for the delay. Let me check your shipping status...
-
-<span class="comment">&lt;!-- Separator added to reduce context bleed (iter 1: insert_separator) --&gt;</span>
-<span class="marker">---</span>
-
-<span class="comment">&lt;!-- Emphasis added to header (iter 2: adjust_emphasis) --&gt;</span>
-<span class="marker">**## Policy**</span>
-- Always greet the customer by name if available
-- Never share internal pricing, cost structures, or margin data
-- Escalate to a human agent if the customer mentions legal action
-- Offer a resolution within the first two responses
-- Do not make promises about timelines unless confirmed by the system
-- Use professional but warm tone throughout
-
-<span class="comment">&lt;!-- Summary echo appended (iter 2: duplicate_summary) --&gt;</span>
-<span class="marker">Remember:</span> Always greet the customer by name if available.</pre>
-    </div>
-
-    <p>
-        Three structural mutations were applied, each targeting a specific diagnostic signal:
+        Here is what the meta-rewriter sees when it fires at iteration 3.  The structural
+        mutations improved the score from 0.412 to 0.712, but retention and terminal attention
+        are stuck below target:
     </p>
 
     <table>
-        <tr><th>Iteration</th><th>Mutation</th><th>Why</th></tr>
+        <tr>
+            <th>Iter</th>
+            <th>Score</th>
+            <th>Delta</th>
+            <th>Mutation</th>
+            <th>Key Issue</th>
+        </tr>
         <tr>
             <td>0</td>
+            <td style="color: var(--red);">0.412</td>
+            <td>&mdash;</td>
             <td><code>reorder_sections</code></td>
-            <td>Policy had low terminal attention (0.018). Moving it after Approved Responses
-                places it closer to the end of the prompt, exploiting transformer recency bias
-                so the model attends to rules more heavily in output layers.</td>
+            <td>Policy terminal attention 0.018 (target: &gt; 0.05)</td>
         </tr>
         <tr>
             <td>1</td>
+            <td style="color: var(--orange);">0.589</td>
+            <td style="color: var(--green);">+0.177</td>
             <td><code>insert_separator</code></td>
-            <td>Context bleed ratio was 1.80. Adding a <code>---</code> separator between the
-                example responses and the policy section creates an explicit attention boundary
-                that reduces cross-region interference.</td>
+            <td>Context bleed 1.80 &rarr; 1.12</td>
         </tr>
         <tr>
             <td>2</td>
-            <td><code>duplicate_summary</code></td>
-            <td>Policy retention was still below target (0.12 &rarr; 0.28). Echoing the first
-                rule at the very end of the prompt ensures the policy region has representation
-                in the final token positions, boosting terminal-layer attention.</td>
+            <td style="color: var(--orange);">0.712</td>
+            <td style="color: var(--green);">+0.123</td>
+            <td><code>adjust_emphasis</code></td>
+            <td>Retention ratio still 0.28 (target: &gt; 0.30)</td>
+        </tr>
+        <tr style="border-top: 2px solid var(--accent2);">
+            <td>3</td>
+            <td style="color: var(--green);">0.871</td>
+            <td style="color: var(--green);">+0.159</td>
+            <td style="color: var(--accent2);"><strong>meta trajectory_rewrite</strong></td>
+            <td>All 5 metrics satisfied</td>
         </tr>
     </table>
 
-    <h3>Step 5: How it changes the LLM output</h3>
+    <h3>Step 4: What the meta-rewriter sees</h3>
     <p>
-        The MI metrics are not academic &mdash; they predict real differences in model behavior.
-        Here's what the model generates for the same user message with each prompt version:
+        The meta-rewriter receives a structured context with four key sections:
     </p>
-
-    <div class="callout">
-        <div class="callout-title">User message (shipping_delay)</div>
-        <p>"My order #4521 was supposed to arrive 5 days ago. This is unacceptable, where is it?"</p>
-    </div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0;">
         <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
-            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--red); margin-bottom: 12px; font-weight: 600;">Before optimization (v0)</div>
-            <div style="font-size: 0.88rem; color: var(--text-dim); line-height: 1.7;">
-                I apologize for the inconvenience with your order #4521. Let me look into this for you right away. <span style="color: var(--red); font-weight: 600;">Based on our shipping records, your package should arrive within the next 2-3 business days.</span> I understand this is frustrating, and I appreciate your patience while we resolve this.
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 12px; font-weight: 600;">Metric Trends</div>
+            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.8;">
+                <span style="color: var(--green);">improving</span> context_bleed_ratio<br>
+                &nbsp;&nbsp;1.80 &rarr; 1.12 &rarr; 0.92<br>
+                <span style="color: var(--orange);">stuck</span> retention_ratio_policy<br>
+                &nbsp;&nbsp;0.12 &rarr; 0.25 &rarr; 0.28<br>
+                <span style="color: var(--orange);">stuck</span> terminal_attention_policy<br>
+                &nbsp;&nbsp;0.018 &rarr; 0.032 &rarr; 0.041
             </div>
-            <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
-                <div style="font-size: 0.75rem; color: var(--red);">
-                    Policy violations:<br>
-                    - Made a timeline promise ("2-3 business days") without system confirmation<br>
-                    - Did not greet by name<br>
-                    - Did not offer a concrete resolution
-                </div>
+        </div>
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 12px; font-weight: 600;">Response Samples (optional)</div>
+            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.8;">
+                <span style="color: var(--text-dim);">iter 0:</span> "I apologize... <span style="color: var(--red);">your package
+                should arrive in 2-3 days</span>..."<br>
+                <span style="color: var(--text-dim);">iter 2:</span> "Hello! Let me check...
+                <span style="color: var(--orange);">I'll get back to you shortly</span>..."<br>
+                <span style="color: var(--text-dim);">iter 3:</span> "Hello! I'm sorry about order #4521.
+                <span style="color: var(--green);">Let me pull up tracking and offer expedited shipping</span>..."
+            </div>
+        </div>
+    </div>
+
+    <p>
+        The trends reveal that structural mutations fixed context bleed effectively, but
+        retention and terminal attention are <em>stuck</em> &mdash; improving slowly despite
+        multiple attempts.  This is exactly when the meta-rewriter adds value: it can identify
+        patterns across the trajectory that single-metric diagnostics miss.
+    </p>
+
+    <h3>Step 5: Meta-rewriter reasoning</h3>
+    <p>
+        The meta-rewriter returns a structured response explaining its changes:
+    </p>
+
+    <div class="code-block">
+        <div class="label">Meta-rewriter output (reasoning excerpt)</div>
+        <pre><span class="comment">&lt;reasoning&gt;</span>
+Structural mutations improved bleed and early-layer absorption, but
+retention and terminal attention remain stuck.  The trajectory shows
+diminishing returns from structural changes alone.
+
+Key observations:
+1. Reordering helped (+0.177) but retention plateaued at 0.28
+2. Emphasis on the Policy header helped terminal attention marginally
+3. Response samples show the model still ignores the "no timeline
+   promises" rule even after emphasis &mdash; it needs stronger priming
+
+Strategy: Restructure the policy section from a flat bullet list
+into grouped sub-sections with explicit DO/DON'T framing.  Add a
+"Critical" marker to the most-violated rules.  Move the greeting
+rule to the very end as a final instruction (terminal position bias).
+<span class="comment">&lt;/reasoning&gt;</span>
+
+<span class="comment">&lt;changes&gt;</span>
+- Grouped policy rules into "Critical Constraints" and "Tone Guidelines"
+- Added explicit DO/DON'T framing for timeline and pricing rules
+- Moved greeting rule to terminal position for recency bias
+- Condensed approved response templates (fewer tokens, same signal)
+<span class="comment">&lt;/changes&gt;</span>
+
+<span class="comment">&lt;confidence&gt;</span>0.8<span class="comment">&lt;/confidence&gt;</span></pre>
+    </div>
+
+    <h3>Step 6: Before and after</h3>
+    <p>
+        The meta-rewriter produces a holistically restructured prompt, not just a single region
+        edit. Here is the key structural change in the policy section:
+    </p>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0;">
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 12px; font-weight: 600;">Before (v2, post-structural)</div>
+            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.6;">
+                <span style="color: var(--accent);">## Policy</span><br>
+                - Always greet the customer by name<br>
+                - Never share internal pricing<br>
+                - Escalate if customer mentions legal action<br>
+                - Offer resolution within first two responses<br>
+                - <span style="color: var(--orange);">Do not make promises about timelines</span><br>
+                - Use professional but warm tone
             </div>
         </div>
         <div style="background: var(--surface); border: 1px solid var(--green); border-radius: 8px; padding: 20px;">
-            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 12px; font-weight: 600;">After optimization (v3)</div>
-            <div style="font-size: 0.88rem; color: var(--text-dim); line-height: 1.7;">
-                Hello! I'm sorry to hear about the delay with your order #4521. I completely understand your frustration. Let me check your shipping status right away. <span style="color: var(--green); font-weight: 600;">I'll pull up the latest tracking information and get back to you with an update. If there's an issue on our end, I'd like to offer you expedited shipping at no additional cost as a resolution.</span>
-            </div>
-            <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
-                <div style="font-size: 0.75rem; color: var(--green);">
-                    Policy adherence:<br>
-                    - No timeline promises (checks first, no fabricated dates)<br>
-                    - Offers a concrete resolution (expedited shipping)<br>
-                    - Professional but warm tone throughout
-                </div>
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green); margin-bottom: 12px; font-weight: 600;">After (v3, meta-rewrite)</div>
+            <div style="font-size: 0.82rem; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--text-dim); line-height: 1.6;">
+                <span style="color: var(--accent);">## Policy</span><br><br>
+                <span style="color: var(--red);">**Critical Constraints:**</span><br>
+                - <span style="color: var(--red);">DON'T</span> promise timelines unless confirmed<br>
+                - <span style="color: var(--red);">DON'T</span> share pricing, costs, or margins<br>
+                - <span style="color: var(--red);">DO</span> escalate if legal action is mentioned<br>
+                - <span style="color: var(--red);">DO</span> offer a resolution within 2 responses<br><br>
+                <span style="color: var(--accent2);">Tone:</span> Professional, warm, empathetic.<br>
+                <span style="color: var(--green);">Always greet the customer by name if available.</span>
             </div>
         </div>
     </div>
 
     <div class="callout insight">
-        <div class="callout-title">Why did the output change?</div>
+        <div class="callout-title">Why does the meta strategy find this?</div>
         <p>
-            The v0 prompt had low terminal attention on the policy region (0.018) and low retention (0.12).
-            The model <em>read</em> the rules in early layers but didn't <em>retain</em> them through to the
-            output layer &mdash; so it generated plausible but non-compliant text. The optimized prompt's
-            structural changes (reordering, separation, echo) increased policy terminal attention to 0.061
-            and retention to 0.38. The rules are now active in the layers that directly shape token generation.
-        </p>
-        <p>
-            This is the core insight: <strong>attention at the output layer predicts behavioral compliance.</strong>
-            A prompt region the model doesn't attend to at generation time might as well not exist.
+            The trajectory told the meta-rewriter two things that single-iteration diagnostics
+            could not: (1) structural mutations had <em>diminishing returns</em> on retention
+            &mdash; three attempts all gave small gains; (2) the response samples showed the model
+            specifically ignored the timeline rule, not the other rules.  A region-scoped LLM
+            rewrite would have reworded the section generically.  The meta-rewriter instead
+            used the trajectory evidence to <strong>restructure with targeted emphasis on the
+            specific rule the model was violating</strong>.
         </p>
     </div>
 
-    <h3>Step 6: Metric comparison</h3>
-    <p>
-        Side-by-side metrics confirm the improvement is systematic, not anecdotal:
-    </p>
+    <h3>Step 7: Score progression</h3>
 
     <table>
         <tr>
             <th>Metric</th>
             <th>Target</th>
-            <th>v0 (Before)</th>
-            <th>v3 (After)</th>
-            <th>Satisfied?</th>
+            <th>v0</th>
+            <th>v2 (structural)</th>
+            <th>v3 (meta)</th>
         </tr>
         <tr>
             <td><code>terminal_attention_policy</code></td>
             <td>&gt; 0.05</td>
             <td style="color: var(--red);">0.018</td>
+            <td style="color: var(--orange);">0.041</td>
             <td style="color: var(--green);">0.061</td>
-            <td style="color: var(--green);">&#10003;</td>
         </tr>
         <tr>
             <td><code>retention_ratio_policy</code></td>
             <td>&gt; 0.30</td>
             <td style="color: var(--red);">0.12</td>
+            <td style="color: var(--orange);">0.28</td>
             <td style="color: var(--green);">0.38</td>
-            <td style="color: var(--green);">&#10003;</td>
         </tr>
         <tr>
             <td><code>peak_layer_frac_policy</code></td>
             <td>&lt; 0.35</td>
             <td style="color: var(--green);">0.09</td>
             <td style="color: var(--green);">0.11</td>
-            <td style="color: var(--green);">&#10003;</td>
+            <td style="color: var(--green);">0.10</td>
         </tr>
         <tr>
             <td><code>context_bleed_ratio</code></td>
             <td>&lt; 3.0</td>
             <td style="color: var(--orange);">1.80</td>
             <td style="color: var(--green);">0.92</td>
-            <td style="color: var(--green);">&#10003;</td>
+            <td style="color: var(--green);">0.85</td>
         </tr>
         <tr>
             <td><code>density_cv</code></td>
             <td>&lt; 2.0</td>
             <td style="color: var(--green);">0.45</td>
             <td style="color: var(--green);">0.51</td>
-            <td style="color: var(--green);">&#10003;</td>
+            <td style="color: var(--green);">0.48</td>
         </tr>
         <tr style="border-top: 2px solid var(--border);">
             <td><strong>Composite score</strong></td>
             <td>&gt; 0.85</td>
             <td style="color: var(--red);"><strong>0.412</strong></td>
+            <td style="color: var(--orange);"><strong>0.712</strong></td>
             <td style="color: var(--green);"><strong>0.871</strong></td>
-            <td style="color: var(--green);">&#10003;</td>
         </tr>
     </table>
 
-    <h3>Step 7: Verify independently</h3>
     <p>
-        The optimizer's metrics are computed during the loop. You can verify them independently
-        by running the standard Promptastic analysis on both prompts and comparing:
+        The structural phase brought the score from 0.412 to 0.712 (addressing the easiest
+        issues).  A single meta-rewrite pushed it past the 0.85 target by addressing the
+        <em>stuck</em> metrics that structural mutations couldn't fix.
     </p>
 
-    <div class="code-block">
-        <div class="label">Verify with standard analysis</div>
-        <pre><span class="comment"># Prep the optimized prompt for analysis</span>
-<span class="cmd">python -m promptastic.prep.inputs</span> \
-    <span class="flag">--prompt</span> optimized/prompt.txt \
-    <span class="flag">--regions</span> examples/optimize/regions.json \
-    <span class="flag">--conversations</span> examples/optimize/conversations.json \
-    <span class="flag">--output</span> test_cases_optimized.json
-
-<span class="comment"># Run analysis</span>
-<span class="cmd">promptastic</span> \
-    <span class="flag">--input</span> test_cases_optimized.json \
-    <span class="flag">--output</span> results_optimized/ \
-    <span class="flag">--model-path</span> Qwen/Qwen2.5-3B-Instruct \
-    <span class="flag">--per-head</span> <span class="flag">--patching</span>
-
-<span class="comment"># Compare before and after</span>
-<span class="cmd">python -m promptastic.analysis.compare</span> \
-    <span class="flag">--base-dir</span> ./ \
-    <span class="flag">--variants</span> results_v0:Original results_optimized:Optimized \
-    <span class="flag">--metrics</span> all</pre>
-    </div>
-
-    <div class="callout insight">
-        <div class="callout-title">What to look for in the comparison</div>
+    <div class="callout">
+        <div class="callout-title">When to use each strategy</div>
         <p>
-            In the cooking curves, the optimized prompt's policy region should show a higher
-            terminal value (retained attention) and a flatter late-layer trajectory. In the
-            patching grid, the policy region should show stronger KL divergence in output layers,
-            confirming it causally influences the generated text. The head grid should show
-            at least one specialist head attending to the policy region at the terminal layer.
+            <strong><code>structural</code></strong> &mdash; Fast, free, good for bleed and ordering issues.
+            Use when you don't have an API key or want a quick baseline.<br>
+            <strong><code>hybrid</code></strong> &mdash; Structural first, then single-region LLM rewrites.
+            Good when one specific region needs better wording.<br>
+            <strong><code>hybrid_meta</code></strong> (recommended) &mdash; Structural first, then
+            trajectory-aware full-prompt rewrites.  Best when metrics plateau or multiple
+            regions interact in complex ways.
         </p>
     </div>
 </section>

@@ -88,6 +88,14 @@ def optimize_prompt(
         from .rewriter import LLMRewriter
         rewriter = LLMRewriter(config.rewrite_model, config.rewrite_api_key)
 
+    meta_rewriter = None
+    if config.mutation_strategy in ("meta", "hybrid_meta") and config.rewrite_model:
+        from .meta_rewriter import MetaRewriter
+        meta_rewriter = MetaRewriter(
+            config.rewrite_model, config.rewrite_api_key,
+            window_size=config.meta_window_size,
+        )
+
     current_spec = PromptSpec.from_string(system_prompt)
     history: list[IterationRecord] = []
     best_score = -1.0
@@ -128,6 +136,16 @@ def optimize_prompt(
             )
             case_results.append(result)
             total_passes += _count_forward_passes(result, capture_config)
+
+        # 2b. Optional response capture for meta-rewriter
+        response_samples: list[str] = []
+        if config.meta_include_responses and meta_rewriter is not None:
+            from .response_capture import capture_responses
+            response_samples = capture_responses(
+                model, tokenizer, adapter, current_spec,
+                conversations,
+                max_new_tokens=config.meta_response_max_tokens,
+            )
 
         # 3. Discover regions and build targets
         regions = sorted(
@@ -178,6 +196,7 @@ def optimize_prompt(
             forward_passes=total_passes,
             wall_time_seconds=wall_time,
             prefix_turns=list(current_spec.prefix_turns),
+            response_samples=response_samples,
         )
         history.append(record)
 
@@ -223,8 +242,15 @@ def optimize_prompt(
         use_structural = (
             config.mutation_strategy == "structural"
             or (
-                config.mutation_strategy == "hybrid"
+                config.mutation_strategy in ("hybrid", "hybrid_meta")
                 and iteration < config.structural_iterations
+            )
+        )
+        use_meta = (
+            config.mutation_strategy == "meta"
+            or (
+                config.mutation_strategy == "hybrid_meta"
+                and iteration >= config.structural_iterations
             )
         )
 
@@ -232,6 +258,17 @@ def optimize_prompt(
             new_spec, mutation_applied = mutator.apply_best_mutation(
                 current_spec, region_config, report,
             )
+        elif use_meta and meta_rewriter is not None:
+            new_prompt, mutation_applied = meta_rewriter.apply_meta_rewrite(
+                current_spec.system_prompt, region_config, history,
+                targets_dict, report,
+            )
+            if mutation_applied and new_prompt != current_spec.system_prompt:
+                new_spec = PromptSpec(
+                    system_prompt=new_prompt,
+                    prefix_turns=list(current_spec.prefix_turns),
+                    has_been_split=current_spec.has_been_split,
+                )
         elif rewriter is not None:
             new_prompt, mutation_applied = rewriter.apply_best_rewrite(
                 current_spec.system_prompt, region_config, report,
@@ -482,7 +519,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--strategy", default="hybrid",
-        choices=["structural", "llm", "hybrid"],
+        choices=["structural", "llm", "hybrid", "meta", "hybrid_meta"],
         help="Mutation strategy (default: hybrid)",
     )
     parser.add_argument(
@@ -500,6 +537,18 @@ def main() -> None:
     parser.add_argument(
         "--targets", default=None,
         help="Path to custom targets JSON file",
+    )
+    parser.add_argument(
+        "--meta-window-size", type=int, default=5,
+        help="Max trajectory entries in meta-rewriter context (default: 5)",
+    )
+    parser.add_argument(
+        "--meta-include-responses", action="store_true",
+        help="Capture actual model responses for meta-rewriter",
+    )
+    parser.add_argument(
+        "--meta-response-max-tokens", type=int, default=64,
+        help="Max tokens per response capture (default: 64)",
     )
     parser.add_argument(
         "--multi-gpu", action="store_true",
@@ -547,6 +596,9 @@ def main() -> None:
         rewrite_model=args.rewrite_model,
         rewrite_api_key=args.rewrite_api_key,
         profile=args.profile,
+        meta_window_size=args.meta_window_size,
+        meta_include_responses=args.meta_include_responses,
+        meta_response_max_tokens=args.meta_response_max_tokens,
     )
 
     # Run optimization

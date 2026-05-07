@@ -47,11 +47,30 @@ class OptimizationScore:
 class MutationRecord:
     """What was changed and why."""
 
-    mutation_type: str  # "structural" or "llm_rewrite"
-    operation: str  # e.g. "reorder_sections", "insert_separator"
+    mutation_type: str  # "structural", "llm_rewrite", or "meta_rewrite"
+    operation: str  # e.g. "reorder_sections", "insert_separator", "trajectory_rewrite"
     target_region: str
     reason: str  # diagnostic signal that triggered this
     diff_summary: str  # human-readable description
+
+
+@dataclass
+class TrajectoryEntry:
+    """Condensed view of one optimization iteration for the meta-rewriter.
+
+    Carries only what the LLM context window needs, including optional
+    response samples that ``IterationRecord`` does not store by default.
+    """
+
+    iteration: int
+    prompt_text: str
+    metrics: dict[str, float]
+    score_total: float
+    score_delta: float  # change from previous iteration (0.0 for iter 0)
+    num_satisfied: int
+    num_total: int
+    mutation_applied: MutationRecord | None
+    response_samples: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -100,6 +119,7 @@ class IterationRecord:
     forward_passes: int
     wall_time_seconds: float
     prefix_turns: list[dict[str, str]] = field(default_factory=list)
+    response_samples: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -130,13 +150,18 @@ class OptimizationConfig:
     enable_patching: bool = False
     enable_per_head: bool = False
     enable_gradients: bool = False
-    mutation_strategy: str = "hybrid"  # "structural", "llm", "hybrid"
+    mutation_strategy: str = "hybrid"  # "structural", "llm", "hybrid", "meta", "hybrid_meta"
     rewrite_model: str = ""
     rewrite_api_key: str = ""
     profile: str = "general"
 
     # How many structural-only iterations before allowing LLM rewrites
     structural_iterations: int = 3
+
+    # Meta-rewriter settings (trajectory-aware N+1 prompt generation)
+    meta_window_size: int = 5  # max trajectory entries in LLM context
+    meta_include_responses: bool = False  # capture actual model responses
+    meta_response_max_tokens: int = 64  # max tokens per response capture
 
 
 @dataclass
