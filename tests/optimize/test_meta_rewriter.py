@@ -1,6 +1,6 @@
 """Tests for the trajectory-aware meta-rewriter (N+1 prompt generation)."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -17,6 +17,8 @@ from promptastic.optimize._types import (
     TrajectoryEntry,
 )
 from promptastic.optimize.meta_rewriter import MetaRewriter
+from promptastic.optimize.policy import CandidateDecision, CandidateEvaluator
+from promptastic.optimize.structure import parse_prompt
 
 
 # ======================================================================
@@ -339,10 +341,16 @@ class TestParseResponse:
             "<reasoning>The rules section needs emphasis.</reasoning>\n"
             "<changes>\n- Added bold markers\n- Reordered sections\n</changes>\n"
             "<confidence>0.8</confidence>\n"
-            "<prompt>## Rules\n**Follow these rules.**</prompt>"
+            "<prompt_structure>"
+            '{"leading_text": "", "sections": ['
+            '{"name": "rules", "body": "\\n**Follow these rules.**\\n"},'
+            '{"name": "examples", "body": "\\nExample."}'
+            ']}'
+            "</prompt_structure>"
         )
         result = MetaRewriter._parse_response(raw)
-        assert result["prompt"] == "## Rules\n**Follow these rules.**"
+        assert result["structure"]["sections"][0]["name"] == "rules"
+        assert "**Follow these rules.**" in result["structure"]["sections"][0]["body"]
         assert "emphasis" in result["reasoning"]
         assert len(result["changes"]) == 2
         assert result["confidence"] == pytest.approx(0.8)
@@ -377,6 +385,42 @@ class TestParseResponse:
         assert result["confidence"] == 0.5
 
 
+class TestApplyStructureUpdate:
+
+    def test_reorders_and_updates_sections(self):
+        prompt = (
+            "## Intro\nIntro text.\n\n"
+            "## Rules\nOld rules.\n\n"
+            "## Examples\nOld example.\n"
+        )
+        region_config = {
+            "system_prompt": {
+                "regions": [
+                    {"name": "intro", "start_marker": "## Intro", "end_marker": "## Rules"},
+                    {"name": "rules", "start_marker": "## Rules", "end_marker": "## Examples"},
+                    {"name": "examples", "start_marker": "## Examples", "end_marker": ""},
+                ],
+            }
+        }
+        structured = parse_prompt(prompt, region_config)
+        payload = {
+            "sections": [
+                {"name": "examples", "body": "\nNew example.\n", "order": 0},
+                {"name": "rules", "body": "\nImproved rules.\n", "order": 1},
+                {"name": "intro", "body": "\nIntro text.\n", "order": 2},
+            ]
+        }
+        updated = MetaRewriter._apply_structure_update(structured, payload)
+        assert updated is not None
+        order = [section.name for section in updated.sections]
+        assert order == ["examples", "rules", "intro"]
+        assert "Improved rules." in updated.render()
+
+    def test_missing_or_invalid_payload_returns_none(self):
+        prompt = "## Intro\nIntro text.\n"
+        structured = parse_prompt(prompt, _region_config())
+        assert MetaRewriter._apply_structure_update(structured, None) is None
+        assert MetaRewriter._apply_structure_update(structured, {"sections": []}) is None
 # ======================================================================
 # Marker validation
 # ======================================================================
@@ -406,8 +450,14 @@ class TestValidateMarkers:
 
 class TestProposeRewrite:
 
-    def _mock_rewriter(self):
-        rewriter = MetaRewriter(model="test-model", api_key="test-key")
+    def _mock_rewriter(self, candidate_evaluator=None):
+        if candidate_evaluator is None:
+            candidate_evaluator = CandidateEvaluator()
+        rewriter = MetaRewriter(
+            model="test-model",
+            api_key="test-key",
+            candidate_evaluator=candidate_evaluator,
+        )
         mock_client = MagicMock()
         rewriter._client = mock_client
         return rewriter, mock_client
@@ -419,7 +469,12 @@ class TestProposeRewrite:
             "<reasoning>Improved clarity</reasoning>\n"
             "<changes>\n- Reworded rules\n</changes>\n"
             "<confidence>0.7</confidence>\n"
-            "<prompt>## Rules\nBetter rules.\n\n## Examples\nExample.</prompt>"
+            "<prompt_structure>"
+            '{"sections": ['
+            '{"name": "rules", "body": "\\nBetter rules.\\n"},'
+            '{"name": "examples", "body": "\\nExample.\\n"}'
+            ']}'
+            "</prompt_structure>"
         ))]
         mock_client.messages.create.return_value = mock_response
 
@@ -445,6 +500,7 @@ class TestProposeRewrite:
         assert "Better rules." in new_prompt
         assert record.mutation_type == "meta_rewrite"
         assert record.operation == "trajectory_rewrite"
+        assert "policy=" in record.diff_summary
 
     def test_rejects_missing_markers(self):
         rewriter, mock_client = self._mock_rewriter()
@@ -467,6 +523,75 @@ class TestProposeRewrite:
         # Should return original prompt unchanged
         assert new_prompt == "## Rules\nOld.\n\n## Examples\nEx."
         assert "marker validation failed" in record.diff_summary
+
+    def test_rejects_via_verification(self):
+        rewriter, mock_client = self._mock_rewriter()
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text=(
+            "<reasoning>No change needed</reasoning>\n"
+            "<changes>\n- kept original\n</changes>\n"
+            "<confidence>0.5</confidence>\n"
+            "<prompt_structure>"
+            '{"sections": ['
+            '{"name": "rules", "body": "\\nOld.\\n\\n"},'
+            '{"name": "examples", "body": "\\nEx."}'
+            ']}'
+            "</prompt_structure>"
+        ))]
+        mock_client.messages.create.return_value = mock_response
+
+        history = [
+            _make_record(0, score=0.3, prompt="## Rules\nOld.\n\n## Examples\nEx."),
+            _make_record(1, score=0.4, prompt="## Rules\nOld.\n\n## Examples\nEx."),
+        ]
+
+        new_prompt, record = rewriter.propose_rewrite(
+            "## Rules\nOld.\n\n## Examples\nEx.",
+            _region_config(),
+            history,
+            _make_targets(),
+            _make_report(),
+        )
+
+        assert new_prompt == "## Rules\nOld.\n\n## Examples\nEx."
+        assert record is not None
+        assert "verification" in record.reason.lower()
+
+    def test_rejects_via_policy(self):
+        class RejectingEvaluator:
+            def evaluate(self, context):
+                return CandidateDecision(False, "stub rejection", 0.0)
+
+        rewriter, mock_client = self._mock_rewriter(candidate_evaluator=RejectingEvaluator())
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text=(
+            "<reasoning>Change everything</reasoning>\n"
+            "<changes>\n- rewrite rules\n</changes>\n"
+            "<confidence>0.8</confidence>\n"
+            "<prompt_structure>"
+            '{"sections": ['
+            '{"name": "rules", "body": "\\nImproved.\\n"},'
+            '{"name": "examples", "body": "\\nExample.\\n"}'
+            ']}'
+            "</prompt_structure>"
+        ))]
+        mock_client.messages.create.return_value = mock_response
+
+        history = [
+            _make_record(0, score=0.3, prompt="## Rules\nOld.\n\n## Examples\nEx."),
+            _make_record(1, score=0.4, prompt="## Rules\nOld.\n\n## Examples\nEx."),
+        ]
+
+        new_prompt, record = rewriter.propose_rewrite(
+            "## Rules\nOld.\n\n## Examples\nEx.",
+            _region_config(),
+            history,
+            _make_targets(),
+            _make_report(),
+        )
+
+        assert new_prompt == "## Rules\nOld.\n\n## Examples\nEx."
+        assert "policy" in record.reason.lower()
 
 
 class TestApplyMetaRewrite:

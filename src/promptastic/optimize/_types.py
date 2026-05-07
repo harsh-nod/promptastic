@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .structure import StructuredPrompt
 
 @dataclass
 class MetricTarget:
@@ -86,6 +87,7 @@ class PromptSpec:
     prefix_turns: list[dict[str, str]] = field(default_factory=list)
     # Each entry: {"role": "user"|"assistant", "content": "..."}
     has_been_split: bool = False  # prevents the split mutation from firing twice
+    structured_prompt: StructuredPrompt | None = None  # optional structured view
 
     @classmethod
     def from_string(cls, text: str) -> PromptSpec:
@@ -105,6 +107,21 @@ class PromptSpec:
             msgs.append({"role": "assistant", "content": response})
         return msgs
 
+    def with_structured(
+        self,
+        structured: StructuredPrompt,
+        *,
+        update_text: bool = True,
+    ) -> PromptSpec:
+        """Return a copy with structured prompt attached."""
+        system_prompt = structured.render() if update_text else self.system_prompt
+        return PromptSpec(
+            system_prompt=system_prompt,
+            prefix_turns=list(self.prefix_turns),
+            has_been_split=self.has_been_split,
+            structured_prompt=structured,
+        )
+
 
 @dataclass
 class IterationRecord:
@@ -120,6 +137,8 @@ class IterationRecord:
     wall_time_seconds: float
     prefix_turns: list[dict[str, str]] = field(default_factory=list)
     response_samples: list[str] = field(default_factory=list)
+    fix_plan: list[str] = field(default_factory=list)
+    prompt_diff: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -162,6 +181,9 @@ class OptimizationConfig:
     meta_window_size: int = 5  # max trajectory entries in LLM context
     meta_include_responses: bool = False  # capture actual model responses
     meta_response_max_tokens: int = 64  # max tokens per response capture
+    verification_enabled: bool = True
+    verification_length_tolerance: float = 0.4  # +/- 40%
+    use_candidate_policy: bool = True
 
 
 @dataclass

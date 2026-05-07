@@ -49,11 +49,8 @@ class TestReorderSections:
             SAMPLE_PROMPT, SAMPLE_CONFIG, "rules", "end",
         )
         assert record.operation == "reorder_sections"
-        assert "## Rules" in new_prompt
-        # Rules should now be at the end
-        rules_pos = new_prompt.find("## Rules")
-        examples_pos = new_prompt.find("## Examples")
-        assert rules_pos > examples_pos
+        structured = parse_prompt(new_prompt, SAMPLE_CONFIG)
+        assert [sec.name for sec in structured.sections][-1] == "rules"
 
     def test_region_not_found(self):
         mutator = StructuralMutator()
@@ -71,8 +68,10 @@ class TestInsertSeparator:
             SAMPLE_PROMPT, SAMPLE_CONFIG, "rules",
         )
         assert record.operation == "insert_separator"
-        # Separator should be near the ## Examples marker
-        assert "---" in new_prompt
+        structured = parse_prompt(new_prompt, SAMPLE_CONFIG)
+        rules_section = structured.get_section("rules")
+        assert rules_section is not None
+        assert "---" in rules_section.body
 
     def test_avoids_double_separator(self):
         mutator = StructuralMutator()
@@ -101,11 +100,10 @@ class TestDuplicateSummary:
             SAMPLE_PROMPT, SAMPLE_CONFIG, "rules",
         )
         assert record.operation == "duplicate_summary"
-        assert "Remember:" in new_prompt
-        # Should be at the end
-        assert new_prompt.rstrip().endswith(
-            new_prompt.rstrip().split("Remember:")[-1].rstrip()
-        )
+        structured = parse_prompt(new_prompt, SAMPLE_CONFIG)
+        output_section = structured.get_section("output_format")
+        assert output_section is not None
+        assert "Remember:" in output_section.body
 
     def test_region_not_found(self):
         mutator = StructuralMutator()
@@ -129,6 +127,7 @@ class TestAdjustEmphasis:
         prompt1, _ = mutator.adjust_emphasis(
             SAMPLE_PROMPT, SAMPLE_CONFIG, "rules",
         )
+        assert "**## Rules**" in prompt1
         prompt2, record2 = mutator.adjust_emphasis(
             prompt1, SAMPLE_CONFIG, "rules",
         )
@@ -197,3 +196,4 @@ class TestApplyBestMutation:
         )
         assert record is None
         assert new_spec.system_prompt == SAMPLE_PROMPT
+from promptastic.optimize.structure import parse_prompt

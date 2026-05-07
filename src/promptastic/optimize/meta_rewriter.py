@@ -9,6 +9,7 @@ because it makes holistic decisions based on the optimization trajectory.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -20,6 +21,9 @@ from ._types import (
     TrajectoryEntry,
 )
 from .diagnostics import format_diagnostic_report
+from .policy import CandidateContext, CandidateDecision
+from .structure import PromptSection, StructuredPrompt, parse_prompt
+from .verification import VerificationResult, verify_candidate
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +55,9 @@ version of the prompt that will score highest on the target metrics.
 ## Current Prompt (version {current_iteration})
 
 {current_prompt}
+## Current Prompt Structure (JSON)
+
+{structure_section}
 {response_section}
 ## Instructions
 
@@ -83,9 +90,22 @@ Why you are making these specific changes, referencing the trajectory.
 A number between 0.0 and 1.0 representing your confidence this will improve the score.
 </confidence>
 
-<prompt>
-The complete new prompt text (nothing else inside this tag).
-</prompt>
+<prompt_structure>
+JSON matching this schema:
+{{
+  "leading_text": string (optional; defaults to current leading text),
+  "sections": [
+    {{
+      "name": string (must match an existing section name),
+      "body": string with updated content for that section,
+      "prefix": string (optional; omit to keep existing prefix),
+      "order": integer (optional; lower numbers appear earlier)
+    }},
+    ...
+  ],
+  "trailing_text": string (optional; defaults to current trailing text)
+}}
+</prompt_structure>
 """
 
 
@@ -102,10 +122,17 @@ class MetaRewriter:
         model: str = "",
         api_key: str = "",
         window_size: int = 5,
+        *,
+        verification_enabled: bool = True,
+        verification_length_tolerance: float = 0.4,
+        candidate_evaluator: Any | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
         self.window_size = window_size
+        self.verification_enabled = verification_enabled
+        self.verification_length_tolerance = verification_length_tolerance
+        self._candidate_evaluator = candidate_evaluator
         self._client: Any = None
 
     # -- Anthropic client (lazy) -------------------------------------------
@@ -194,6 +221,24 @@ class MetaRewriter:
         half = max_chars // 2
         omitted = len(text) - max_chars
         return f"{text[:half]}\n[...{omitted} chars omitted...]\n{text[-half:]}"
+
+    @staticmethod
+    def _format_structure(structured: StructuredPrompt) -> str:
+        payload = {
+            "leading_text": structured.leading_text,
+            "sections": [
+                {
+                    "name": section.name,
+                    "start_marker": section.start_marker,
+                    "header": section.header,
+                    "prefix": section.prefix,
+                    "body": section.body,
+                }
+                for section in structured.sections
+            ],
+            "trailing_text": structured.trailing_text,
+        }
+        return json.dumps(payload, indent=2, ensure_ascii=False)
 
     @staticmethod
     def _format_trajectory(trajectory: list[TrajectoryEntry]) -> str:
@@ -316,10 +361,18 @@ class MetaRewriter:
             match = re.search(pattern, text, re.DOTALL)
             return match.group(1).strip() if match else ""
 
+        structure_raw = _extract_tag(raw_text, "prompt_structure")
         prompt = _extract_tag(raw_text, "prompt")
         reasoning = _extract_tag(raw_text, "reasoning")
         changes_raw = _extract_tag(raw_text, "changes")
         confidence_raw = _extract_tag(raw_text, "confidence")
+
+        structure: dict[str, Any] | None = None
+        if structure_raw:
+            try:
+                structure = json.loads(structure_raw)
+            except json.JSONDecodeError:
+                structure = None
 
         # Parse changes into list
         changes: list[str] = []
@@ -346,7 +399,100 @@ class MetaRewriter:
             "reasoning": reasoning,
             "changes": changes,
             "confidence": confidence,
+            "structure": structure,
         }
+
+    @staticmethod
+    def _apply_structure_update(
+        structured: StructuredPrompt,
+        update_payload: dict[str, Any] | None,
+    ) -> StructuredPrompt | None:
+        if not update_payload:
+            return None
+
+        sections_payload = update_payload.get("sections")
+        if not isinstance(sections_payload, list) or not sections_payload:
+            return None
+
+        section_lookup = {section.name: section for section in structured.sections}
+        used_names: set[str] = set()
+        ordered_sections: list[PromptSection] = []
+
+        sortable_entries: list[tuple[float, dict[str, Any]]] = []
+        for index, entry in enumerate(sections_payload):
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if not name or name not in section_lookup:
+                continue
+            order_value = entry.get("order")
+            if isinstance(order_value, (int, float)):
+                sort_key = float(order_value)
+            else:
+                sort_key = float(index)
+            sortable_entries.append((sort_key, entry))
+
+        for _, entry in sorted(sortable_entries, key=lambda item: item[0]):
+            name = entry.get("name")
+            if not name or name not in section_lookup:
+                continue
+            base_section = section_lookup[name]
+            used_names.add(name)
+
+            body = entry.get("body")
+            if body is None:
+                body = base_section.body
+
+            prefix = entry.get("prefix")
+            if prefix is None:
+                prefix = base_section.prefix
+
+            ordered_sections.append(
+                PromptSection(
+                    name=name,
+                    start_marker=base_section.start_marker,
+                    prefix=prefix,
+                    header=base_section.header,
+                    body=body,
+                    metadata=dict(getattr(base_section, "metadata", {})),
+                )
+            )
+
+        for section in structured.sections:
+            if section.name in used_names:
+                continue
+            ordered_sections.append(section)
+
+        leading_text = update_payload.get("leading_text")
+        if leading_text is None:
+            leading_text = structured.leading_text
+
+        trailing_text = update_payload.get("trailing_text")
+        if trailing_text is None:
+            trailing_text = structured.trailing_text
+
+        return StructuredPrompt(
+            original_text=structured.original_text,
+            leading_text=leading_text,
+            sections=ordered_sections,
+            trailing_text=trailing_text,
+            missing_regions=list(structured.missing_regions),
+        )
+
+    @staticmethod
+    def _changed_sections(
+        current: StructuredPrompt,
+        candidate: StructuredPrompt,
+    ) -> list[str]:
+        changed: list[str] = []
+        current_lookup = {section.name: section for section in current.sections}
+        for section in candidate.sections:
+            original = current_lookup.get(section.name)
+            if original is None:
+                continue
+            if original.body != section.body or original.prefix != section.prefix:
+                changed.append(section.name)
+        return changed
 
     # -- Marker validation -------------------------------------------------
 
@@ -383,6 +529,8 @@ class MetaRewriter:
         """
         self._ensure_client()
 
+        structured_prompt = parse_prompt(current_prompt, region_config)
+
         trajectory = self.build_trajectory(history, self.window_size)
 
         # Build the meta-rewrite prompt
@@ -397,6 +545,7 @@ class MetaRewriter:
             trends_section=self._format_trends(trajectory, targets),
             diagnostic_section=format_diagnostic_report(report),
             current_prompt=current_prompt,
+            structure_section=self._format_structure(structured_prompt),
             response_section=response_section,
             current_iteration=current_iteration,
         )
@@ -411,9 +560,21 @@ class MetaRewriter:
         raw_response = message.content[0].text.strip()
         parsed = self._parse_response(raw_response)
 
-        new_prompt = parsed["prompt"]
+        new_structured = self._apply_structure_update(
+            structured_prompt,
+            parsed.get("structure"),
+        )
 
-        # Validate region markers
+        candidate_structured = new_structured
+        if candidate_structured is None:
+            new_prompt = parsed["prompt"]
+            if not new_prompt:
+                new_prompt = current_prompt
+            candidate_structured = parse_prompt(new_prompt, region_config)
+        else:
+            new_prompt = candidate_structured.render()
+
+        # Validate region markers before verification logic.
         missing = self._validate_markers(new_prompt, region_config)
         if missing:
             return current_prompt, MutationRecord(
@@ -424,9 +585,56 @@ class MetaRewriter:
                 diff_summary="No change — marker validation failed",
             )
 
+        verification: VerificationResult | None = None
+        if self.verification_enabled:
+            verification = verify_candidate(
+                structured_prompt,
+                candidate_structured,
+                report,
+                length_tolerance=self.verification_length_tolerance,
+            )
+            if not verification.accepted:
+                reason = "; ".join(verification.reasons) or "verification_failed"
+                return current_prompt, MutationRecord(
+                    mutation_type="meta_rewrite",
+                    operation="trajectory_rewrite",
+                    target_region="(full prompt)",
+                    reason=f"Rejected by verification: {reason}",
+                    diff_summary=f"Verification rejected candidate ({reason})",
+                )
+
+        policy_decision: CandidateDecision | None = None
+        changed_sections = self._changed_sections(structured_prompt, candidate_structured)
+        if self._candidate_evaluator is not None:
+            policy_decision = self._candidate_evaluator.evaluate(
+                CandidateContext(
+                    iteration=current_iteration,
+                    mutation_type="meta_rewrite",
+                    report=report,
+                    verification=verification,
+                    changed_sections=changed_sections,
+                    reasoning=parsed.get("reasoning", ""),
+                )
+            )
+            if not policy_decision.accept:
+                rationale = policy_decision.rationale or "policy_rejected"
+                return current_prompt, MutationRecord(
+                    mutation_type="meta_rewrite",
+                    operation="trajectory_rewrite",
+                    target_region="(full prompt)",
+                    reason=f"Rejected by policy: {rationale}",
+                    diff_summary="No change — policy rejected candidate",
+                )
+
         reasoning = parsed["reasoning"][:500] if parsed["reasoning"] else "N+1 trajectory-based rewrite"
         changes = parsed["changes"]
         changes_str = "; ".join(changes[:5]) if changes else "full prompt rewrite"
+        if verification and verification.changed_sections:
+            changes_str += f" | sections:{','.join(verification.changed_sections)}"
+        elif policy_decision and changed_sections:
+            changes_str += f" | sections:{','.join(changed_sections)}"
+        if policy_decision is not None:
+            changes_str += f" | policy={policy_decision.confidence:.2f}"
 
         return new_prompt, MutationRecord(
             mutation_type="meta_rewrite",

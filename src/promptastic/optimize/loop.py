@@ -26,9 +26,12 @@ from ._types import (
 from .diagnostics import diagnose, format_diagnostic_report
 from .extract import extract_all_metrics
 from .mutations import StructuralMutator
+from .insights import build_fix_plan, changed_sections, summarize_prompt_diff
 from .profiles import apply_profile
 from .score import composite_score
 from .targets import build_targets_for_regions, load_targets_from_file, targets_to_dict
+from .policy import CandidateEvaluator
+from .structure import parse_prompt
 
 
 def optimize_prompt(
@@ -84,6 +87,7 @@ def optimize_prompt(
     # Set up mutators
     mutator = StructuralMutator()
     rewriter = None
+    candidate_evaluator = CandidateEvaluator() if config.use_candidate_policy else None
     if config.mutation_strategy in ("llm", "hybrid") and config.rewrite_model:
         from .rewriter import LLMRewriter
         rewriter = LLMRewriter(config.rewrite_model, config.rewrite_api_key)
@@ -94,9 +98,13 @@ def optimize_prompt(
         meta_rewriter = MetaRewriter(
             config.rewrite_model, config.rewrite_api_key,
             window_size=config.meta_window_size,
+            verification_enabled=config.verification_enabled,
+            verification_length_tolerance=config.verification_length_tolerance,
+            candidate_evaluator=candidate_evaluator,
         )
 
     current_spec = PromptSpec.from_string(system_prompt)
+    current_spec = _attach_structure(current_spec, region_config)
     history: list[IterationRecord] = []
     best_score = -1.0
     best_iteration = -1
@@ -237,6 +245,10 @@ def optimize_prompt(
                 best_prefix_turns,
             )
 
+        fix_plan = build_fix_plan(report)
+        record.fix_plan = fix_plan
+        _print_fix_plan(fix_plan)
+
         mutation_applied: MutationRecord | None = None
         new_spec: PromptSpec = current_spec
         use_structural = (
@@ -295,7 +307,19 @@ def optimize_prompt(
             or new_spec.prefix_turns != current_spec.prefix_turns
         )
         if mutation_applied is not None and spec_changed:
-            current_spec = new_spec
+            before_structured = current_spec.structured_prompt or parse_prompt(
+                current_spec.system_prompt, region_config
+            )
+            after_structured = new_spec.structured_prompt or parse_prompt(
+                new_spec.system_prompt, region_config
+            )
+            section_changes = changed_sections(before_structured, after_structured)
+            record.prompt_diff = summarize_prompt_diff(
+                before_structured, after_structured, section_changes,
+            )
+            if record.prompt_diff:
+                _print_prompt_diff(record.prompt_diff)
+            current_spec = _attach_structure(new_spec, region_config)
         else:
             # No mutation possible, stop
             return _build_result(
@@ -370,6 +394,31 @@ def _print_mutation(mutation: MutationRecord) -> None:
     )
 
 
+def _print_fix_plan(plan: list[str]) -> None:
+    if not plan:
+        return
+    print("    Fix plan:")
+    for item in plan[:3]:
+        print(f"      - {item}")
+
+
+def _print_prompt_diff(diff_lines: list[str]) -> None:
+    if not diff_lines:
+        return
+    print("    Prompt diff:")
+    for line in diff_lines[:3]:
+        print(f"      • {line}")
+
+
+def _attach_structure(
+    spec: PromptSpec,
+    region_config: dict[str, Any],
+) -> PromptSpec:
+    """Attach a structured prompt view to ``spec``."""
+    structured = parse_prompt(spec.system_prompt, region_config)
+    return spec.with_structured(structured)
+
+
 def _save_results(
     result: OptimizationResult,
     output_dir: Path,
@@ -414,6 +463,8 @@ def _save_results(
                     else None
                 ),
                 "wall_time_seconds": rec.wall_time_seconds,
+                "fix_plan": rec.fix_plan,
+                "prompt_diff": rec.prompt_diff,
             }
             for rec in result.history
         ],

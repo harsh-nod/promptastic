@@ -41,6 +41,9 @@ def test_optimization_config_defaults():
     assert c.mutation_strategy == "hybrid"
     assert c.profile == "general"
     assert c.structural_iterations == 3
+    assert c.verification_enabled is True
+    assert c.verification_length_tolerance == 0.4
+    assert c.use_candidate_policy is True
 
 
 def test_optimization_score_construction():

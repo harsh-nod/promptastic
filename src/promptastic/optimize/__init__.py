@@ -34,6 +34,7 @@ from ._types import (
     TrajectoryEntry,
 )
 from .loop import optimize_prompt
+from .structure import PromptSection, StructuredPrompt, parse_prompt
 
 __all__ = [
     "DiagnosticIssue",
@@ -47,5 +48,8 @@ __all__ = [
     "OptimizationScore",
     "PromptSpec",
     "TrajectoryEntry",
+    "PromptSection",
+    "StructuredPrompt",
+    "parse_prompt",
     "optimize_prompt",
 ]

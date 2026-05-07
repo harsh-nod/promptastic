@@ -8,9 +8,11 @@ that re-annotation continues to work after transformation.
 from __future__ import annotations
 
 import re
-from typing import Any
+from dataclasses import replace
+from typing import Any, Callable
 
 from ._types import DiagnosticReport, MutationRecord, PromptSpec
+from .structure import PromptSection, StructuredPrompt, parse_prompt
 
 
 class StructuralMutator:
@@ -28,69 +30,47 @@ class StructuralMutator:
         Identifies the section boundaries from region config markers and
         relocates the text block.
         """
-        sys_regions = region_config.get("system_prompt", {}).get("regions", [])
-        region_def = None
-        for rdef in sys_regions:
-            if rdef.get("name") == target_region:
-                region_def = rdef
-                break
+        structured = parse_prompt(prompt, region_config)
+        names = [section.name for section in structured.sections]
+        if target_region not in names:
+            return prompt, _no_region_record("reorder_sections", target_region)
 
-        if region_def is None:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="reorder_sections",
-                target_region=target_region,
-                reason=f"Region {target_region} not found in config",
-                diff_summary="No change (region not found)",
-            )
+        sections = list(structured.sections)
+        index = names.index(target_region)
+        section = sections.pop(index)
 
-        # Extract section text using markers
-        start_marker = region_def.get("start_marker", "")
-        end_marker = region_def.get("end_marker", "")
-
-        if not start_marker:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="reorder_sections",
-                target_region=target_region,
-                reason="No start_marker defined",
-                diff_summary="No change (no markers)",
-            )
-
-        start_idx = prompt.find(start_marker)
-        if start_idx == -1:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="reorder_sections",
-                target_region=target_region,
-                reason="Start marker not found in prompt",
-                diff_summary="No change (marker not found)",
-            )
-
-        if end_marker:
-            end_idx = prompt.find(end_marker, start_idx + len(start_marker))
-            if end_idx == -1:
-                end_idx = len(prompt)
+        if position == "start":
+            section = replace(section, prefix="")
+            sections.insert(0, section)
         else:
-            end_idx = len(prompt)
+            # Default to moving towards the end.
+            section = replace(section, prefix="\n\n" if sections else "")
+            sections.append(section)
 
-        section_text = prompt[start_idx:end_idx]
-        remaining = prompt[:start_idx] + prompt[end_idx:]
+        # Ensure the first section has no prefix and subsequent sections have spacing.
+        normalized_sections: list[PromptSection] = []
+        for idx, sec in enumerate(sections):
+            if idx == 0:
+                normalized_sections.append(replace(sec, prefix=""))
+            else:
+                prefix = sec.prefix if sec.prefix.strip() else "\n\n"
+                normalized_sections.append(replace(sec, prefix=prefix))
 
-        # Clean up double newlines from removal
-        remaining = re.sub(r"\n{3,}", "\n\n", remaining)
+        new_structured = StructuredPrompt(
+            original_text=structured.original_text,
+            leading_text=structured.leading_text,
+            sections=normalized_sections,
+            trailing_text=structured.trailing_text,
+            missing_regions=list(structured.missing_regions),
+        )
 
-        if position == "end":
-            new_prompt = remaining.rstrip() + "\n\n" + section_text.strip() + "\n"
-        else:
-            new_prompt = section_text.strip() + "\n\n" + remaining.lstrip()
-
+        new_prompt = new_structured.render()
         return new_prompt, MutationRecord(
             mutation_type="structural",
             operation="reorder_sections",
             target_region=target_region,
             reason=f"Moved {target_region} to {position} of prompt",
-            diff_summary=f"Relocated {len(section_text)} chars to {position}",
+            diff_summary=f"Reordered sections ({target_region} -> {position})",
         )
 
     def insert_separator(
@@ -101,54 +81,13 @@ class StructuralMutator:
         separator: str = "\n---\n",
     ) -> tuple[str, MutationRecord]:
         """Insert a separator after a region to reduce context bleed."""
-        sys_regions = region_config.get("system_prompt", {}).get("regions", [])
-        region_def = None
-        for rdef in sys_regions:
-            if rdef.get("name") == after_region:
-                region_def = rdef
-                break
+        structured = parse_prompt(prompt, region_config)
+        target_section = structured.get_section(after_region)
+        if target_section is None:
+            return prompt, _no_region_record("insert_separator", after_region)
 
-        if region_def is None:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="insert_separator",
-                target_region=after_region,
-                reason=f"Region {after_region} not found",
-                diff_summary="No change",
-            )
-
-        end_marker = region_def.get("end_marker", "")
-        if end_marker:
-            insert_pos = prompt.find(end_marker)
-            if insert_pos != -1:
-                insert_pos += len(end_marker)
-            else:
-                insert_pos = -1
-        else:
-            # Use start_marker + region text to estimate end
-            start_marker = region_def.get("start_marker", "")
-            if start_marker:
-                start_idx = prompt.find(start_marker)
-                if start_idx != -1:
-                    # Find end of the paragraph
-                    next_double_newline = prompt.find("\n\n", start_idx + len(start_marker))
-                    insert_pos = next_double_newline if next_double_newline != -1 else len(prompt)
-                else:
-                    insert_pos = -1
-            else:
-                insert_pos = -1
-
-        if insert_pos == -1:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="insert_separator",
-                target_region=after_region,
-                reason="Could not locate region boundary",
-                diff_summary="No change",
-            )
-
-        # Avoid double separators
-        if separator.strip() in prompt[max(0, insert_pos - 20):insert_pos + 20]:
+        body = target_section.body
+        if separator.strip() in body[-80:]:
             return prompt, MutationRecord(
                 mutation_type="structural",
                 operation="insert_separator",
@@ -157,9 +96,23 @@ class StructuralMutator:
                 diff_summary="No change (already present)",
             )
 
-        new_prompt = prompt[:insert_pos] + separator + prompt[insert_pos:]
+        new_body = body.rstrip() + separator + "\n"
+        updated_sections: list[PromptSection] = []
+        for sec in structured.sections:
+            if sec.name == after_region:
+                updated_sections.append(replace(sec, body=new_body))
+            else:
+                updated_sections.append(sec)
 
-        return new_prompt, MutationRecord(
+        new_structured = StructuredPrompt(
+            original_text=structured.original_text,
+            leading_text=structured.leading_text,
+            sections=updated_sections,
+            trailing_text=structured.trailing_text,
+            missing_regions=list(structured.missing_regions),
+        )
+
+        return new_structured.render(), MutationRecord(
             mutation_type="structural",
             operation="insert_separator",
             target_region=after_region,
@@ -179,54 +132,13 @@ class StructuralMutator:
         Extracts the first sentence of the region and appends it as a
         reminder at the end.
         """
-        sys_regions = region_config.get("system_prompt", {}).get("regions", [])
-        region_def = None
-        for rdef in sys_regions:
-            if rdef.get("name") == target_region:
-                region_def = rdef
-                break
+        structured = parse_prompt(prompt, region_config)
+        target_section = structured.get_section(target_region)
+        if target_section is None:
+            return prompt, _no_region_record("duplicate_summary", target_region)
 
-        if region_def is None:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="duplicate_summary",
-                target_region=target_region,
-                reason=f"Region {target_region} not found",
-                diff_summary="No change",
-            )
-
-        start_marker = region_def.get("start_marker", "")
-        if not start_marker:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="duplicate_summary",
-                target_region=target_region,
-                reason="No start_marker",
-                diff_summary="No change",
-            )
-
-        start_idx = prompt.find(start_marker)
-        if start_idx == -1:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="duplicate_summary",
-                target_region=target_region,
-                reason="Start marker not found",
-                diff_summary="No change",
-            )
-
-        # Extract first sentence after the marker
-        content_start = start_idx + len(start_marker)
-        rest = prompt[content_start:content_start + 500].strip()
-        # Find first sentence boundary
-        for delim in (". ", ".\n", "!\n", "?\n"):
-            pos = rest.find(delim)
-            if pos != -1:
-                first_sentence = rest[: pos + 1]
-                break
-        else:
-            first_sentence = rest[:200].strip()
-
+        snippet = target_section.body.strip()
+        first_sentence = _extract_first_sentence(snippet)
         if not first_sentence:
             return prompt, MutationRecord(
                 mutation_type="structural",
@@ -237,9 +149,17 @@ class StructuralMutator:
             )
 
         summary = f"\n\n{summary_prefix}{first_sentence}\n"
-        new_prompt = prompt.rstrip() + summary
+        new_trailing = structured.trailing_text.rstrip() + summary
 
-        return new_prompt, MutationRecord(
+        new_structured = StructuredPrompt(
+            original_text=structured.original_text,
+            leading_text=structured.leading_text,
+            sections=list(structured.sections),
+            trailing_text=new_trailing,
+            missing_regions=list(structured.missing_regions),
+        )
+
+        return new_structured.render(), MutationRecord(
             mutation_type="structural",
             operation="duplicate_summary",
             target_region=target_region,
@@ -255,45 +175,14 @@ class StructuralMutator:
         emphasis_markers: tuple[str, str] = ("**", "**"),
     ) -> tuple[str, MutationRecord]:
         """Add emphasis markers around a region's key content."""
-        sys_regions = region_config.get("system_prompt", {}).get("regions", [])
-        region_def = None
-        for rdef in sys_regions:
-            if rdef.get("name") == target_region:
-                region_def = rdef
-                break
+        structured = parse_prompt(prompt, region_config)
+        target_section = structured.get_section(target_region)
+        if target_section is None:
+            return prompt, _no_region_record("adjust_emphasis", target_region)
 
-        if region_def is None:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="adjust_emphasis",
-                target_region=target_region,
-                reason=f"Region {target_region} not found",
-                diff_summary="No change",
-            )
-
-        start_marker = region_def.get("start_marker", "")
-        if not start_marker:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="adjust_emphasis",
-                target_region=target_region,
-                reason="No start_marker",
-                diff_summary="No change",
-            )
-
-        start_idx = prompt.find(start_marker)
-        if start_idx == -1:
-            return prompt, MutationRecord(
-                mutation_type="structural",
-                operation="adjust_emphasis",
-                target_region=target_region,
-                reason="Start marker not found",
-                diff_summary="No change",
-            )
-
-        # Add emphasis around the start marker line
         open_m, close_m = emphasis_markers
-        if open_m in prompt[start_idx:start_idx + len(start_marker) + 10]:
+        emphasised = f"{open_m}{target_section.start_marker}{close_m}"
+        if emphasised in prompt:
             return prompt, MutationRecord(
                 mutation_type="structural",
                 operation="adjust_emphasis",
@@ -302,10 +191,23 @@ class StructuralMutator:
                 diff_summary="No change (already emphasized)",
             )
 
-        new_marker = f"{open_m}{start_marker}{close_m}"
-        new_prompt = prompt[:start_idx] + new_marker + prompt[start_idx + len(start_marker):]
+        new_header = emphasised
+        updated_sections: list[PromptSection] = []
+        for sec in structured.sections:
+            if sec.name == target_region:
+                updated_sections.append(replace(sec, header=new_header))
+            else:
+                updated_sections.append(sec)
 
-        return new_prompt, MutationRecord(
+        new_structured = StructuredPrompt(
+            original_text=structured.original_text,
+            leading_text=structured.leading_text,
+            sections=updated_sections,
+            trailing_text=structured.trailing_text,
+            missing_regions=list(structured.missing_regions),
+        )
+
+        return new_structured.render(), MutationRecord(
             mutation_type="structural",
             operation="adjust_emphasis",
             target_region=target_region,
@@ -327,6 +229,12 @@ class StructuralMutator:
         """
         if isinstance(spec, str):
             spec = PromptSpec.from_string(spec)
+
+        if spec.structured_prompt is None:
+            structured = parse_prompt(spec.system_prompt, region_config)
+            spec = spec.with_structured(structured)
+        else:
+            structured = spec.structured_prompt
 
         structural_ops = {
             "insert_separator",
@@ -372,11 +280,9 @@ class StructuralMutator:
             else:
                 continue
 
-            return PromptSpec(
-                system_prompt=new_text,
-                prefix_turns=list(spec.prefix_turns),
-                has_been_split=spec.has_been_split,
-            ), record
+            new_structured = parse_prompt(new_text, region_config)
+            new_spec = spec.with_structured(new_structured)
+            return new_spec, record
 
         return spec, None
 
@@ -397,3 +303,24 @@ def _extract_region_from_metric(metric_name: str) -> str:
         if metric_name.startswith(prefix):
             return metric_name[len(prefix):]
     return ""
+
+
+def _no_region_record(operation: str, target_region: str) -> MutationRecord:
+    return MutationRecord(
+        mutation_type="structural",
+        operation=operation,
+        target_region=target_region,
+        reason=f"Region {target_region} not found",
+        diff_summary="No change (region not found)",
+    )
+
+
+def _extract_first_sentence(text: str) -> str:
+    snippet = text.strip()
+    if not snippet:
+        return ""
+    for delim in (". ", ".\n", "!\n", "?\n", "! ", "? "):
+        idx = snippet.find(delim)
+        if idx != -1:
+            return snippet[: idx + 1].strip()
+    return snippet.splitlines()[0].strip()

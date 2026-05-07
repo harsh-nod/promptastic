@@ -8,6 +8,7 @@ def test_from_string_basic():
     assert spec.system_prompt == "Hello world"
     assert spec.prefix_turns == []
     assert spec.has_been_split is False
+    assert spec.structured_prompt is None
 
 
 def test_to_messages_no_prefix():
@@ -55,6 +56,7 @@ def test_prefix_turns_default_empty():
     spec = PromptSpec(system_prompt="test")
     assert spec.prefix_turns == []
     assert spec.has_been_split is False
+    assert spec.structured_prompt is None
 
 
 def test_has_been_split_flag():
@@ -64,3 +66,26 @@ def test_has_been_split_flag():
         has_been_split=True,
     )
     assert spec.has_been_split is True
+
+
+def test_with_structured_round_trip():
+    from promptastic.optimize.structure import PromptSection, StructuredPrompt
+
+    section = PromptSection(
+        name="rules",
+        start_marker="## Rules",
+        prefix="",
+        header="## Rules",
+        body="\n- Follow instructions.\n",
+    )
+    structured = StructuredPrompt(
+        original_text="## Rules\n- Follow instructions.\n",
+        leading_text="",
+        sections=[section],
+        trailing_text="",
+        missing_regions=[],
+    )
+
+    spec = PromptSpec.from_string("placeholder").with_structured(structured)
+    assert spec.system_prompt == "## Rules\n- Follow instructions.\n"
+    assert spec.structured_prompt is structured
